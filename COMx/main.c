@@ -8,6 +8,7 @@
 #define PROTOCAL_NUM 3
 #define CURRENT_PROTOCAL ST_MODEBUS
 
+
 #define DEV_AMS_ADDR 0x01
 #define DEV_LIGHT_MODUL_ADDR 0x01
 //static char *dev_name_array[PROTOCAL_NUM] = { "/dev/ttyS1", "/dev/ttyS1", "/dev/ttyS3" };

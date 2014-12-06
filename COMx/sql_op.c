@@ -23,6 +23,7 @@ void sql_select_where_equal(char *key_name, char *value)
 	printf("base_expf: %s\r\n", base_exp);
 
 }
+
 void sql_select_where_less(char *key_name, char *value)
 {
 	printf("base_exp: %s\r\n", base_exp);
@@ -33,6 +34,7 @@ void sql_select_where_less(char *key_name, char *value)
 	printf("base_expf: %s\r\n", base_exp);
 
 }
+
 void sql_clear_where(void)
 {
 	strcpy(base_exp, "");

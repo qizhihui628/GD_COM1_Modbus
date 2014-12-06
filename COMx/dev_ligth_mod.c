@@ -77,11 +77,11 @@ void dev_light_update_module_st(void *value_ptr)
 {
 	if (*(int *) value_ptr == 0)
 	{
-		sql_select_where_equal(LIGHT_RUNNING_STATE, "ON");
+		sql_select_where_equal(LIGHT_RUNNING_STATE, "OFF");
 	}
 	else
 	{
-		sql_select_where_equal(LIGHT_RUNNING_STATE, "OFF");
+		sql_select_where_equal(LIGHT_RUNNING_STATE, "ON");
 	}
 	match_record_flag = 1;
 
@@ -90,8 +90,7 @@ void dev_light_update_module_st(void *value_ptr)
 re_error_enum dev_light_status_update(u8 *value_ptr)
 {
 	u8 val_num;
-	u8 val_buf[5] =
-	{ 0 };
+	u8 val_buf[5] = { 0 };
 	re_error_enum re_val;
 
 	re_val = modbus_read_line(0, LIGHT_NUMBER, &val_num, val_buf);
@@ -169,7 +168,7 @@ int enter_record_set_value(void * para, int n_column, char ** column_value,
 				}
 				else
 				{
-					dev_light_ctrl_val_set(1);
+					dev_light_ctrl_val_set(0x0f);
 					printf("set on\r\n");
 				}
 				match_record_flag = 1;
