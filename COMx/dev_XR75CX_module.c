@@ -36,6 +36,8 @@
 #define FREEZE_SET_REG_ADDR 0x0376
 #define FREEZE_RD_SET_REG_ADDR 0x0600
 #define FREEZE_FROST_REG_ADDR 0x0201
+#define FREEZE_SET_FROST_TIME_ADDR 0x0321
+#define FREEZE_SET_FROST_TEMPERATURE_ADDR 0x031E
 #define FREEZE_ON_OFF_REG_ADDR 0x0200
 #define FREEZE_SET_REG_NUM 1
 
@@ -50,7 +52,7 @@ static u8 match_freeze_module_num = 0;
 static u8 current_module_id = 0;
 
 static freeze_module_struct freeze_module_array[MAX_FREEZE_MODULE_NUMBER];
-
+static char* cur_mode_array[MAX_FREEZE_MODULE_NUMBER]= {NULL};
 static void dev_freeze_select_spec_date(void);
 static void dev_freeze_select_date(void);
 static void dev_freeze_select_date(void);
@@ -158,7 +160,7 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 	{
 		printf("val1: %d, val2: %d\r\n", val_buf[0], val_buf[1]);
 		*value_ptr = (((u16)val_buf[0] << 8) | (u16)val_buf[1])/10;
-		printf("val1: %d, val2: %d, val: %d, addr:%d\r\n", val_buf[0], val_buf[1], *value_ptr, value_ptr);
+		printf("val1: %d, val2: %d, val: %d\r\n", val_buf[0], val_buf[1], *value_ptr);
 	}
 	else
 	{
@@ -169,36 +171,49 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 	return RE_SUCCESS;
 }
 
-static re_error_enum dev_freeze_ctrl_val_set(char* set_val)
+static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, int set_time)
 {
 	re_error_enum re_val = RE_SUCCESS;
-
-	re_val = modbus_write_mul_reg(FREEZE_SET_REG_ADDR, FREEZE_SET_REG_NUM, (atoi(set_val)*10));
-	if (re_val != RE_SUCCESS)
+	if (cur_mode_array[current_module_id] == NULL)
 	{
-		printf("error %d: serial write register failed\n", re_val);
-		return re_val;
+		cur_mode_array[current_module_id] = "";
 	}
-	return re_val;
-}
-
-static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode)
-{
-	re_error_enum re_val = RE_SUCCESS;
-
-	if (strcmp(set_mode, MODE_DEFROST_PATTERN) == 0)
+	printf("cur id: %d, cur mode : %s\r\n", current_module_id, cur_mode_array[current_module_id]);
+	if (strcmp(set_mode, MODE_DEFROST_PATTERN) == 0
+			&& strcmp(cur_mode_array[current_module_id], MODE_DEFROST_PATTERN) != 0)
 	{
-		re_val = modbus_write_reg(FREEZE_FROST_REG_ADDR, 1);
+		printf("set defrost time :%d, ter temp: %s\r\n", set_time, set_value);
+		re_val = modbus_write_mul_reg(FREEZE_SET_FROST_TIME_ADDR, FREEZE_SET_REG_NUM, set_time);
+		re_val |= modbus_write_mul_reg(FREEZE_SET_FROST_TEMPERATURE_ADDR, FREEZE_SET_REG_NUM, (atoi(set_value)*10));
+		re_val |= modbus_write_reg(FREEZE_FROST_REG_ADDR, 1);
+		if (re_val != RE_SUCCESS)
+		{
+			printf("error %d: serial write line failed\n", re_val);
+			return re_val;
+		}
+		cur_mode_array[current_module_id] = MODE_DEFROST_PATTERN;
 	}
 	else if (strcmp(set_mode, MODE_ON_PATTERN) == 0)
 	{
-		re_val = modbus_write_reg(FREEZE_FROST_REG_ADDR, 0);
-		re_val |= modbus_write_reg(FREEZE_ON_OFF_REG_ADDR, 1);
 
+		re_val = modbus_write_reg(FREEZE_ON_OFF_REG_ADDR, 1);
+		re_val |= modbus_write_mul_reg(FREEZE_SET_REG_ADDR, FREEZE_SET_REG_NUM, (atoi(set_value)*10));
+		if (re_val != RE_SUCCESS)
+		{
+			printf("error %d: serial write line failed\n", re_val);
+			return re_val;
+		}
+		cur_mode_array[current_module_id] = MODE_ON_PATTERN;
 	}
 	else if (strcmp(set_mode, MODE_OFF_PATTERN) == 0)
 	{
 		re_val = modbus_write_reg(FREEZE_ON_OFF_REG_ADDR, 0);
+		if (re_val != RE_SUCCESS)
+		{
+			printf("error %d: serial write line failed\n", re_val);
+			return re_val;
+		}
+		cur_mode_array[current_module_id] = MODE_OFF_PATTERN;
 	}
 	else
 	{
@@ -206,12 +221,6 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode)
 		return RE_OP_FAIL;
 	}
 
-	if (re_val != RE_SUCCESS)
-	{
-		printf("error %d: serial write line failed\n", re_val);
-		return re_val;
-	}
-	return re_val;
 }
 
 static int enter_record_get_module_info(void * para, int n_column,
@@ -246,6 +255,7 @@ static int enter_record_set_value(void * para, int n_column, char ** column_valu
 	int i;
 	int column_no = 0;
 	int hour, minute, second, other;
+	int hour_st, minute_st,hour_end,minute_end;
 	char cur_time[12];
 	get_current_time(&other, &other, &other, &other, &hour, &minute, &second);
 	sprintf((char*) cur_time, "%02d:%02d:%02d", hour, minute, second);
@@ -262,11 +272,13 @@ static int enter_record_set_value(void * para, int n_column, char ** column_valu
 			&&(match_time_key(column_name[column_no+4], TIME_MODE_PATTERN, NULL) == 0)
 			&&(match_time_key(column_name[column_no+5], TIME_TEMPERATURE_PATTERN, NULL) == 0))
 			{
+				sscanf(column_value[column_no+3], "%d:%d:%d", &hour_end, &minute_end, &other);
+				sscanf(column_value[column_no+2], "%d:%d:%d", &hour_st, &minute_st, &other);
+				minute = (hour_end - hour_st) * 60 + (minute_end - minute_st);
 
 				printf(" %s is %s\r\n", column_name[column_no+4], column_value[column_no+4]);
-				dev_freeze_ctrl_mode_set(column_value[column_no+4]);
+				dev_freeze_ctrl_mode_set(column_value[column_no+4], column_value[column_no+5], minute);
 				printf(" %s is %s\r\n", column_name[column_no+5], column_value[column_no+5]);
-				dev_freeze_ctrl_val_set(column_value[column_no+5]);
 				match_record_flag = 1;
 				return 0;
 			}
