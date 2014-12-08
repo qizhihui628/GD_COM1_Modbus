@@ -10,9 +10,10 @@
 #define MODBUS_PKG_LEN(data_len) ((data_len) + CRC_LEN + HEAD_LEN)
 
 #define MODBUS_FUNC_READ_LINE 0x01
+#define MODBUS_FUNC_READ_HOLD_REG 0x03
 #define MODBUS_FUNC_WRITE_SINGLE_LINE 0x05
 #define MODBUS_FUNC_WRITE_MUL_LINE 0x0f
-
+#define MODBUS_FUNC_WRITE_MUL_REGISTER 0x10
 typedef struct
 {
 	u8 addr;
@@ -244,5 +245,153 @@ re_error_enum modbus_write_line(u8 line_id, u8 val)
 		return ret_val;
 	}
 
+	return ret_val;
+}
+re_error_enum modbus_write_reg(u16 reg_id, u16 val)
+{
+	re_error_enum ret_val = RE_SUCCESS;
+	modbus_pkg_struct pkg_ptr =
+	{ 0 };
+	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	{ 0 };
+
+	pkg_ptr.func = MODBUS_FUNC_WRITE_SINGLE_LINE;
+	data_buf[0] = H_VAL16(reg_id);
+	data_buf[1] = L_VAL4(reg_id);
+	if (val == 1)
+	{
+		data_buf[2] = 0xff;
+		data_buf[3] = 0;
+	}
+	else if (val == 0)
+	{
+		data_buf[2] = 0;
+		data_buf[3] = 0;
+	}
+	else
+	{
+		return RE_INVALID_PARAMETER;
+	}
+
+	pkg_ptr.data_ptr = data_buf;
+	ret_val = modbus_send(&pkg_ptr, 4);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: write line faild\r\n ", ret_val);
+		return ret_val;
+	}
+	usleep(100000);
+	ret_val = modbus_receive(&pkg_ptr);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: write line respond faild\r\n ", ret_val);
+		return ret_val;
+	}
+
+	return ret_val;
+}
+re_error_enum modbus_write_mul_reg(u16 start_reg, u16 reg_num, s16 val)
+{
+	re_error_enum ret_val = RE_SUCCESS;
+	modbus_pkg_struct pkg_ptr =
+	{ 0 };
+	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	{ 0 };
+	pkg_ptr.func = MODBUS_FUNC_WRITE_MUL_REGISTER;
+	data_buf[0] = H_VAL16(start_reg);
+	data_buf[1] = L_VAL16(start_reg);
+	data_buf[2] = H_VAL16(reg_num);
+	data_buf[3] = L_VAL16(reg_num);
+	data_buf[4] = 0x02;
+	data_buf[5] = (val >> 8) & 0x00ff;
+	data_buf[6] = (val & 0x00ff);
+	pkg_ptr.data_ptr = data_buf;
+	ret_val = modbus_send(&pkg_ptr, 7);
+
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: write line faild\r\n ", ret_val);
+		return ret_val;
+	}
+	usleep(100000);
+	ret_val = modbus_receive(&pkg_ptr);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: write line respond faild\r\n ", ret_val);
+		return ret_val;
+	}
+
+	return ret_val;
+}
+
+re_error_enum modbus_read_binary(u16 start_reg, u16 reg_num, u8* val_num_ptr,
+        u8 *val_ptr)
+{
+	re_error_enum ret_val = RE_SUCCESS;
+	modbus_pkg_struct pkg_ptr =
+	{ 0 };
+	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	{ 0 };
+	u8 i;
+	pkg_ptr.func = MODBUS_FUNC_READ_LINE;
+	data_buf[0] = H_VAL16(start_reg);
+	data_buf[1] = L_VAL16(start_reg);
+	data_buf[2] = H_VAL16(reg_num);
+	data_buf[3] = L_VAL16(reg_num);
+	pkg_ptr.data_ptr = data_buf;
+	ret_val = modbus_send(&pkg_ptr, 4);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
+		return ret_val;
+	}
+	usleep(100000);
+	ret_val = modbus_receive(&pkg_ptr);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: read reg: respond faild\r\n ", ret_val, start_reg);
+		return ret_val;
+	}
+	*val_num_ptr = pkg_ptr.data_ptr[0];
+	for (i = 0; i < *val_num_ptr; i++)
+	{
+		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
+	}
+	return ret_val;
+}
+
+re_error_enum modbus_read_hold_reg(u16 start_reg, u16 reg_num, u8* val_num_ptr,
+        u8 *val_ptr)
+{
+	re_error_enum ret_val = RE_SUCCESS;
+	modbus_pkg_struct pkg_ptr =
+	{ 0 };
+	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	{ 0 };
+	u8 i;
+	pkg_ptr.func = MODBUS_FUNC_READ_HOLD_REG;
+	data_buf[0] = H_VAL16(start_reg);
+	data_buf[1] = L_VAL16(start_reg);
+	data_buf[2] = H_VAL16(reg_num);
+	data_buf[3] = L_VAL16(reg_num);
+	pkg_ptr.data_ptr = data_buf;
+	ret_val = modbus_send(&pkg_ptr, 4);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
+		return ret_val;
+	}
+	usleep(100000);
+	ret_val = modbus_receive(&pkg_ptr);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
+		return ret_val;
+	}
+	*val_num_ptr = pkg_ptr.data_ptr[0];
+	for (i = 0; i < *val_num_ptr; i++)
+	{
+		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
+	}
 	return ret_val;
 }

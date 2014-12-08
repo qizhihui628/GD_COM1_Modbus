@@ -32,7 +32,7 @@ static void dev_light_select_date(void);
 static void dev_light_select_date(void);
 static void dev_light_select_modue(void);
 
-void dev_light_select_spec_date(void)
+static void dev_light_select_spec_date(void)
 {
 	int month, day, other;
 	int year;
@@ -44,7 +44,7 @@ void dev_light_select_spec_date(void)
 
 }
 
-void dev_light_select_date(void)
+static void dev_light_select_date(void)
 {
 	int weekday, other;
 
@@ -60,12 +60,12 @@ void dev_light_select_date(void)
 	}
 }
 
-void dev_light_select_modue(void)
+static void dev_light_select_modue(void)
 {
 	sql_select_where_equal(LIGHT_STATUS, "enable");
 }
 
-void dev_light_select_module_st(void)
+static void dev_light_select_module_st(void)
 {
 	char cur_addr[4];
 	sprintf((char*) cur_addr, "%d",
@@ -73,7 +73,7 @@ void dev_light_select_module_st(void)
 	sql_select_where_equal(LIGHT_ADDRESS, cur_addr);
 }
 
-void dev_light_update_module_st(void *value_ptr)
+static void dev_light_update_module_st(void *value_ptr)
 {
 	if (*(int *) value_ptr == 0)
 	{
@@ -87,7 +87,7 @@ void dev_light_update_module_st(void *value_ptr)
 
 }
 
-re_error_enum dev_light_status_update(u8 *value_ptr)
+static re_error_enum dev_light_status_update(u8 *value_ptr)
 {
 	u8 val_num;
 	u8 val_buf[5] = { 0 };
@@ -106,7 +106,7 @@ re_error_enum dev_light_status_update(u8 *value_ptr)
 	return RE_SUCCESS;
 }
 
-re_error_enum dev_light_ctrl_val_set(u8 set_val)
+static re_error_enum dev_light_ctrl_val_set(u8 set_val)
 {
 	re_error_enum re_val;
 
@@ -119,7 +119,7 @@ re_error_enum dev_light_ctrl_val_set(u8 set_val)
 	return re_val;
 }
 
-int enter_record_get_module_info(void * para, int n_column,
+static int enter_record_get_module_info(void * para, int n_column,
         char ** column_value, char ** column_name)
 {
 	int i;
@@ -145,7 +145,7 @@ int enter_record_get_module_info(void * para, int n_column,
 	return 0;
 }
 
-int enter_record_set_value(void * para, int n_column, char ** column_value,
+static int enter_record_set_value(void * para, int n_column, char ** column_value,
         char ** column_name)
 {
 	int i;
@@ -156,7 +156,7 @@ int enter_record_set_value(void * para, int n_column, char ** column_value,
 	sprintf((char*) cur_time, "%02d:%02d:%02d.000", hour, minute, second);
 	for (i = 0; i < n_column; i++)
 	{
-		if (match_time_key(column_name[i], TIME_KEY_PATTERN) == 0)
+		if (match_time_key(column_name[i], TIME_KEY_PATTERN, NULL) == 0)
 		{
 			if (strcmp(cur_time, column_value[i]) < 0)
 			{
@@ -181,7 +181,7 @@ int enter_record_set_value(void * para, int n_column, char ** column_value,
 	return 0;
 }
 
-int enter_record_get_value(void * para, int n_column, char ** column_value,
+static int enter_record_get_value(void * para, int n_column, char ** column_value,
         char ** column_name)
 {
 	int i;
@@ -196,7 +196,7 @@ int enter_record_get_value(void * para, int n_column, char ** column_value,
 	}
 	return 0;
 }
-re_error_enum dev_light_module_init(void)
+static re_error_enum dev_light_module_init(void)
 {
 	int result;
 	memset(light_module_array, 0, sizeof(light_module_array));
@@ -227,7 +227,7 @@ re_error_enum dev_light_module_init(void)
 	return RE_SUCCESS;
 }
 
-re_error_enum dev_light_module_switch(u8 light_mod_id)
+static re_error_enum dev_light_module_switch(u8 light_mod_id)
 {
 	int value, result;
 	if (light_mod_id > match_light_module_num)

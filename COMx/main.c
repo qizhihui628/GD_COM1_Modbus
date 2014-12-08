@@ -2,6 +2,7 @@
 #include "main.h"
 #include "modbus_master.h"
 #include "dev_light_mod.h"
+#include "dev_XR75CX_module.h"
 #define NONE_STANDARD 0
 #define ST_MODEBUS 1
 #define AD_IO_MODBUS 2
@@ -11,8 +12,8 @@
 
 #define DEV_AMS_ADDR 0x01
 #define DEV_LIGHT_MODUL_ADDR 0x01
-//static char *dev_name_array[PROTOCAL_NUM] = { "/dev/ttyS1", "/dev/ttyS1", "/dev/ttyS3" };
-static char *dev_name_array[PROTOCAL_NUM] = {"/dev/ttymxc1", "/dev/ttymxc1", "/dev/ttymxc2"};
+static char *dev_name_array[PROTOCAL_NUM] = { "/dev/ttyS1", "/dev/ttyS1", "/dev/ttyS3" };
+//static char *dev_name_array[PROTOCAL_NUM] = {"/dev/ttymxc1", "/dev/ttymxc1", "/dev/ttymxc2"};
 int main(void)
 {
 	re_error_enum re_val = RE_SUCCESS;
@@ -44,12 +45,21 @@ int main(void)
 	/* loop for input */
 	while (loop)
 	{
+		/*
 		re_val = dev_light_module_monitor();
 		if (re_val != RE_SUCCESS)
 		{
 			printf("error:dev_light_module_monitor failed\n");
 			return 1;
 		}
+*/
+		re_val = dev_freeze_module_monitor();
+		if (re_val != RE_SUCCESS)
+		{
+			printf("error:dev_freeze_module_monitor failed\n");
+			return 1;
+		}
+		//break;
 
 	}
 	sleep(1);

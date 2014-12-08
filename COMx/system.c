@@ -3,7 +3,8 @@
 #include <sys/time.h>
 #include <time.h>
 #include <string.h>
-
+#define MAX_BUF_SIZE 20
+static char string_buf[MAX_BUF_SIZE] = {0};
 void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
         int* weekday_ptr, int *hour_ptr, int *minitue_ptr, int *second_ptr)
 {
@@ -21,12 +22,12 @@ void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
 	*weekday_ptr = nowtime->tm_wday;
 }
 
-int match_time_key(char *string, char* pattern)
+int match_time_key(char *string, char* pattern, char** sub_pptr)
 {
 	regex_t reg;
 	regmatch_t pm[1];       //pattern matches 0-9
 	const size_t nmatch = 1;  //The size of array pm[]
-
+	char temp_str[MAX_BUF_SIZE] = {0};
 
 	if (regcomp(&reg, pattern, REG_EXTENDED | REG_ICASE | REG_NOSUB) != 0)
 	{
@@ -41,6 +42,11 @@ int match_time_key(char *string, char* pattern)
 	}
 
 	printf("match time success %s pattern:%s\r\n", string, pattern);
-
+	if (sub_pptr != NULL)
+	{
+		strcpy(temp_str, string);
+		strncpy(string_buf, &temp_str[pm[0].rm_so], (pm[0].rm_eo-pm[0].rm_so));
+		*sub_pptr = string_buf;
+	}
 	return 0;
 }
