@@ -1,37 +1,176 @@
-#if 0
 #include "serial.h"
 #include "crc_check.h"
 #include "nonstd_master.h"
 
-#define MODBUS_MAX_BUF_SIZE 50
-#define MODBUS_MAX_DATA_SIZE 50
-#define CRC_LEN 2
-#define HEAD_LEN 2
-#define MODBUS_INVALID_DEV 0xff
-#define MODBUS_PKG_LEN(data_len) ((data_len) + CRC_LEN + HEAD_LEN)
+#define NONSTD_SOI         0x7E
+#define NONSTD_VER         0x20
+#define NONSTD_EOI         0x0D
 
-#define MODBUS_FUNC_READ_LINE 0x01
-#define MODBUS_FUNC_READ_HOLD_REG 0x03
-#define MODBUS_FUNC_WRITE_SINGLE_LINE 0x05
-#define MODBUS_FUNC_WRITE_MUL_LINE 0x0f
-#define MODBUS_FUNC_WRITE_MUL_REGISTER 0x10
+#define NONSTD_CID1_AIR    0x60
+
+#define NONSTD_CID2_PRIVATE             0xE0
+
+#define NONSTD_CID2_NORMAL_RTN          0x00
+
+#define NONSTD_PRIVATE_FUNC_CTRL        0x600
+#define NONSTD_PRIVATE_FUNC_CTRL_MODE   0x620
+#define NONSTD_PRIVATE_FUNC_SET_TEMP    0x630
+#define NONSTD_PRIVATE_FUNC_GET_STATUS    0x400
+
+#define NONSTD_MAX_BUF_SIZE 100
+#define NONSTD_MAX_DATA_SIZE 100
+#define CRC_LEN 2
+#define HEAD_LEN 1
+#define END_LEN 1
+#define HEAD_INFO_LEN 6
+#define NONSTD_INVALID_DEV 0xff
+#define NONSTD_PKG_LEN(data_len) ((data_len) + CRC_LEN + HEAD_LEN + HEAD_INFO_LEN + END_LEN)
+
+#define NONSTD_FUNC_READ_LINE 0x01
+#define NONSTD_FUNC_READ_HOLD_REG 0x03
+#define NONSTD_FUNC_WRITE_SINGLE_LINE 0x05
+#define NONSTD_FUNC_WRITE_MUL_LINE 0x0f
+#define NONSTD_FUNC_WRITE_MUL_REGISTER 0x10
 typedef struct
 {
+	u8 soi;
+	u8 ver;
 	u8 addr;
-	u8 func;
-	u8 *data_ptr;
+	u8 cid1;
+	u8 cid2;
+	u16 lenid;//asccii number
+	u8 *data_ptr;//ascii byte
 	u16 crc_val;
-} modbus_pkg_struct;
+	u8 eoi;
+} nonstd_pkg_struct;
 
-static int modbus_fd = -1;
+static int nonstd_fd = -1;
 
-static u8 cur_modbus_dev = MODBUS_INVALID_DEV;
-void modbus_init(void)
+static u8 cur_nonstd_dev = NONSTD_INVALID_DEV;
+static u8 cur_nonstd_air_no = NONSTD_INVALID_DEV;
+static u16 nonstd_lenth_encode(u16 length)
+{
+	u16 temp_sum, temp_int;
+	temp_sum = 0;
+
+	temp_int = (length >> 8) & 0x0F;
+	temp_sum = temp_int;
+	temp_int = (length >> 4) & 0x0F;
+	temp_sum += temp_int;
+	temp_sum += length & 0x0F;
+
+	temp_int = temp_sum % 16;
+	temp_int = ~temp_int + 1;
+
+	temp_sum = (temp_int << 12) & 0xF000;
+
+	temp_sum += length & 0xFFF;
+
+	return temp_sum;
+}
+
+static re_error_enum nonstd_lenth_decode(u16 len_info, u16* len_ptr)
+{
+	if (nonstd_lenth_encode(len_info & 0x0fff) == len_info)
+	{
+		*len_ptr = len_info & 0x0fff;
+		return RE_SUCCESS;
+	}
+	else
+	{
+		printf("error: invalid length info: %d\r\n", len_info);
+		return RE_OP_FAIL;
+	}
+
+}
+
+static void nonstd_pkg_decode(nonstd_pkg_struct* pkg_ptr, u8* data_buf, u8* data_len_ptr)
+{
+	u8 i = 0;
+	u16 len_info = 0;
+	data_buf[0] = pkg_ptr->soi = NONSTD_SOI;
+	pkg_ptr->ver = NONSTD_VER;
+	pkg_ptr->cid1 = NONSTD_CID1_AIR;
+	pkg_ptr->cid2 = NONSTD_CID2_PRIVATE;
+	hex2asc(pkg_ptr->ver, &data_buf[1], &data_buf[2]);
+	pkg_ptr->addr = cur_nonstd_dev;
+	hex2asc(pkg_ptr->addr, &data_buf[3], &data_buf[4]);
+	hex2asc(pkg_ptr->cid1, &data_buf[5], &data_buf[6]);
+	hex2asc(pkg_ptr->cid2, &data_buf[7], &data_buf[8]);
+	len_info = nonstd_lenth_encode(pkg_ptr->lenid);
+	hex2asc(H_VAL16(len_info), &data_buf[9], &data_buf[10]);
+	hex2asc(L_VAL16(len_info), &data_buf[11], &data_buf[12]);
+
+	for (i = 0; i < pkg_ptr->lenid; i++)
+	{
+		data_buf[13 + i] = val2asc(pkg_ptr->data_ptr[i]);
+
+	}
+	pkg_ptr->crc_val = checksum(&data_buf[1], (12+i*2));
+	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[13+i*2], &data_buf[14+i*2]);
+	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[15+i*2], &data_buf[16+i*2]);
+	data_buf[17+i*2] = pkg_ptr->eoi = NONSTD_EOI;
+
+	*data_len_ptr = 18+i*2;
+}
+
+static re_error_enum nonstd_pkg_encode(u8* data_buf, nonstd_pkg_struct* pkg_ptr, u16 len)
+{
+	u16 i = 0;
+	u16 len_info = 0;
+	pkg_ptr->crc_val = asc2hex(data_buf[len - END_LEN - 2], data_buf[len - END_LEN - 1]);
+	pkg_ptr->crc_val = ((u16)asc2hex(data_buf[len - END_LEN - 4], data_buf[len - END_LEN - 3]) << 8) | pkg_ptr->crc_val;
+	if ( pkg_ptr->crc_val != checksum(&data_buf[1], (len - HEAD_LEN - END_LEN - CRC_LEN*2)))
+	{
+		printf("error:receive crc error\r\n ");
+		return RE_OP_FAIL;
+	}
+	pkg_ptr->soi = data_buf[0];
+	pkg_ptr->eoi = data_buf[len - END_LEN];
+	pkg_ptr->ver = asc2hex(data_buf[1], data_buf[2]);
+	pkg_ptr->addr = asc2hex(data_buf[3], data_buf[4]);
+
+	if (pkg_ptr->soi != NONSTD_SOI || pkg_ptr->eoi != NONSTD_EOI || pkg_ptr->ver != NONSTD_VER || pkg_ptr->addr != cur_nonstd_dev)
+	{
+			printf("error:receive invalid package\r\n");
+			return RE_OP_FAIL;
+	}
+
+	pkg_ptr->cid1 = asc2hex(data_buf[5], data_buf[6]);
+
+	pkg_ptr->cid2 = asc2hex(data_buf[7], data_buf[8]);
+	if (pkg_ptr->cid2 != NONSTD_CID2_NORMAL_RTN)
+	{
+		printf("error:receive invalid package cid2: %d\r\n", pkg_ptr->cid2);
+		return RE_OP_FAIL;
+	}
+	len_info = (u16)asc2hex(data_buf[9], data_buf[10]);
+	len_info = len_info |asc2hex(data_buf[11], data_buf[12]);
+	if (nonstd_lenth_decode(len_info, &pkg_ptr->lenid) != RE_SUCCESS)
+	{
+		printf("error:receive invalid data length: %d\r\n", pkg_ptr->lenid);
+		return RE_OP_FAIL;
+	}
+	if (pkg_ptr->lenid != (len - END_LEN - (HEAD_INFO_LEN + CRC_LEN)*2 - HEAD_LEN))
+	{
+		printf("error:receive invalid package length : %d\r\n", len);
+		return RE_OP_FAIL;
+	}
+
+	for (i = 0; i < pkg_ptr->lenid; i++)
+	{
+		pkg_ptr->data_ptr[i] = asc2val(data_buf[13 + i]);
+
+	}
+	return RE_SUCCESS;
+}
+
+void nonstd_init(void)
 {
 	serial_init();
 }
 
-re_error_enum modbus_creat(char* dev_name_ptr, u32 baud_rate)
+re_error_enum nonstd_creat(char* dev_name_ptr, u32 baud_rate)
 {
 	re_error_enum ret_val = RE_SUCCESS;
 	int fd = -1;
@@ -40,90 +179,65 @@ re_error_enum modbus_creat(char* dev_name_ptr, u32 baud_rate)
 	{
 		return RE_OP_FAIL;
 	}
-	modbus_fd = fd;
+	nonstd_fd = fd;
 	return RE_SUCCESS;
 }
 
-re_error_enum modbus_send(modbus_pkg_struct *pkg_ptr, u8 data_len)
+static re_error_enum nonstd_send(nonstd_pkg_struct *pkg_ptr)
 {
 	re_error_enum ret_val = RE_SUCCESS;
-	u8 i;
 	u8 len = 0;
-	u8 modbus_send_buf[MODBUS_MAX_BUF_SIZE] =
+	u8 nonstd_send_buf[NONSTD_MAX_BUF_SIZE] =
 	{ 0 };
 
-	if (modbus_fd < 0)
+	if (nonstd_fd < 0)
 	{
-		printf("error:creat modbus first\r\n");
+		printf("error:creat nonstd first\r\n");
 		return RE_OP_FAIL;
 	}
-	if (cur_modbus_dev == MODBUS_INVALID_DEV)
+	if (cur_nonstd_dev == NONSTD_INVALID_DEV)
 	{
-		printf("error:specify modbus dev first\r\n");
+		printf("error:specify nonstd dev first\r\n");
 		return RE_OP_FAIL;
 	}
-	modbus_send_buf[0] = pkg_ptr->addr = cur_modbus_dev;
-	modbus_send_buf[1] = pkg_ptr->func;
-	for (i = 0; i < data_len; i++)
-	{
-		modbus_send_buf[2 + i] = *pkg_ptr->data_ptr++;
 
-	}
-	len = data_len + HEAD_LEN;
-	pkg_ptr->crc_val = CRC16_check(modbus_send_buf, len);
+	nonstd_pkg_decode(pkg_ptr, nonstd_send_buf, &len);
+
 #ifdef DEBUG
 	printf("crc : %x, len:%d\r\n", pkg_ptr->crc_val, len);
 #endif
-	modbus_send_buf[len] = H_VAL16(pkg_ptr->crc_val);
-	modbus_send_buf[len + 1] = L_VAL16(pkg_ptr->crc_val);
+
 	usleep(10000);
-	ret_val = serial_write(modbus_fd, modbus_send_buf,
-	        MODBUS_PKG_LEN(data_len));
+	ret_val = serial_write(nonstd_fd, nonstd_send_buf, len);
 	return ret_val;
 }
 
-re_error_enum modbus_receive(modbus_pkg_struct *pkg_ptr)
+static re_error_enum nonstd_receive(nonstd_pkg_struct *pkg_ptr)
 {
 	re_error_enum ret_val = RE_SUCCESS;
-	u8 len = 0, i;
-	u8 modbus_receive_buf[MODBUS_MAX_BUF_SIZE] =
+	u8 len = 0;
+	u8 nonstd_receive_buf[NONSTD_MAX_BUF_SIZE] =
 	{ 0 };
 
-	if (modbus_fd < 0)
+	if (nonstd_fd < 0)
 	{
-		printf("error:creat modbus first\r\n");
+		printf("error:creat nonstd first\r\n");
 		return RE_OP_FAIL;
 	}
-	if (cur_modbus_dev == MODBUS_INVALID_DEV)
+	if (cur_nonstd_dev == NONSTD_INVALID_DEV)
 	{
-		printf("error:specify modbus dev first\r\n");
+		printf("error:specify nonstd dev first\r\n");
 		return RE_OP_FAIL;
 	}
-	ret_val = serial_read(modbus_fd, MODBUS_MAX_BUF_SIZE, modbus_receive_buf,
+	ret_val = serial_read(nonstd_fd, NONSTD_MAX_BUF_SIZE, nonstd_receive_buf,
 	        &len);
 	if (ret_val != RE_SUCCESS)
 	{
 		return ret_val;
 	}
-	pkg_ptr->crc_val = CRC16_check(modbus_receive_buf, (len - CRC_LEN));
-	if (L_VAL16(pkg_ptr->crc_val) == modbus_receive_buf[len - 1]
-	        && H_VAL16(pkg_ptr->crc_val) == modbus_receive_buf[len - CRC_LEN])
+	if (nonstd_pkg_encode(nonstd_receive_buf, pkg_ptr, len) != RE_SUCCESS)
 	{
-		pkg_ptr->addr = modbus_receive_buf[0];
-		if (pkg_ptr->addr != cur_modbus_dev)
-		{
-			printf("error:receive invalid package\r\n");
-			return RE_OP_FAIL;
-		}
-		pkg_ptr->func = modbus_receive_buf[1];
-		for (i = 0; i < (len - CRC_LEN - HEAD_LEN); i++)
-		{
-			pkg_ptr->data_ptr[i] = modbus_receive_buf[i + HEAD_LEN];
-		}
-	}
-	else
-	{
-		printf("error:receive crc error\r\n ");
+		printf("error:receive package failed\r\n");
 		return RE_OP_FAIL;
 	}
 
@@ -131,27 +245,28 @@ re_error_enum modbus_receive(modbus_pkg_struct *pkg_ptr)
 
 }
 
-void modbus_dev_switch(u8 addr)
+void nonstd_dev_switch(u8 addr, u8 air_no)
 {
-	cur_modbus_dev = addr;
+	cur_nonstd_dev = addr;
+	cur_nonstd_air_no = air_no;
 }
 
-re_error_enum modbus_write_mul_line(u8 start_line, u8 line_num, u8 val)
+re_error_enum nonstd_on_ff(u8 value)
 {
 	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
+	nonstd_pkg_struct pkg_ptr =
 	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	u8 data_buf[NONSTD_MAX_BUF_SIZE] =
 	{ 0 };
-	pkg_ptr.func = MODBUS_FUNC_WRITE_MUL_LINE;
-	data_buf[0] = H_VAL4(start_line);
-	data_buf[1] = L_VAL4(start_line);
-	data_buf[2] = H_VAL4(line_num);
-	data_buf[3] = L_VAL4(line_num);
-	data_buf[4] = 0x01;
-	data_buf[5] = val;
+	data_buf[0] = ((u16)NONSTD_PRIVATE_FUNC_CTRL >> 8) & 0x0f;
+	data_buf[1] = ((u16)NONSTD_PRIVATE_FUNC_CTRL >> 4) & 0x0f;
+	data_buf[2] = ((u16)NONSTD_PRIVATE_FUNC_CTRL) & 0x0f;
+	data_buf[3] = cur_nonstd_air_no;
+	data_buf[4] = value;
+	pkg_ptr.lenid = 5;
 	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 6);
+
+	ret_val = nonstd_send(&pkg_ptr);
 
 	if (ret_val != RE_SUCCESS)
 	{
@@ -159,155 +274,36 @@ re_error_enum modbus_write_mul_line(u8 start_line, u8 line_num, u8 val)
 		return ret_val;
 	}
 	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
+	ret_val = nonstd_receive(&pkg_ptr);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line respond faild\r\n ", ret_val);
 		return ret_val;
 	}
-
-	return ret_val;
-}
-
-re_error_enum modbus_read_line(u8 start_line, u8 line_num, u8* val_num_ptr,
-        u8 *val_ptr)
-{
-	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
-	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
-	{ 0 };
-	u8 i;
-	pkg_ptr.func = MODBUS_FUNC_READ_LINE;
-	data_buf[0] = H_VAL4(start_line);
-	data_buf[1] = L_VAL4(start_line);
-	data_buf[2] = H_VAL4(line_num);
-	data_buf[3] = L_VAL4(line_num);
-	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 4);
-	if (ret_val != RE_SUCCESS)
+	if (pkg_ptr.cid1 != NONSTD_CID1_AIR)
 	{
-		printf("error %d: read line faild\r\n ", ret_val);
+		printf("error %d: receive a unmached package,cid1: %d \r\n ", ret_val, pkg_ptr.cid1);
 		return ret_val;
-	}
-	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
-	if (ret_val != RE_SUCCESS)
-	{
-		printf("error %d: read line respond faild\r\n ", ret_val);
-		return ret_val;
-	}
-	*val_num_ptr = pkg_ptr.data_ptr[0];
-	for (i = 0; i < *val_num_ptr; i++)
-	{
-		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
 	}
 	return ret_val;
 }
 
-re_error_enum modbus_write_line(u8 line_id, u8 val)
+re_error_enum nonstd_ctrl_mode(u8 value)
 {
 	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
+	nonstd_pkg_struct pkg_ptr =
 	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	u8 data_buf[NONSTD_MAX_BUF_SIZE] =
 	{ 0 };
-
-	pkg_ptr.func = MODBUS_FUNC_WRITE_SINGLE_LINE;
-	data_buf[0] = H_VAL4(line_id);
-	data_buf[1] = L_VAL4(line_id);
-	if (val == 1)
-	{
-		data_buf[2] = 0xff;
-		data_buf[3] = 0;
-	}
-	else if (val == 0)
-	{
-		data_buf[2] = 0;
-		data_buf[3] = 0;
-	}
-	else
-	{
-		return RE_INVALID_PARAMETER;
-	}
-
+	data_buf[0] = ((u16)NONSTD_PRIVATE_FUNC_CTRL_MODE >> 8) & 0x0f;
+	data_buf[1] = ((u16)NONSTD_PRIVATE_FUNC_CTRL_MODE >> 4) & 0x0f;
+	data_buf[2] = ((u16)NONSTD_PRIVATE_FUNC_CTRL_MODE) & 0x0f;
+	data_buf[3] = cur_nonstd_air_no;
+	data_buf[4] = value;
+	pkg_ptr.lenid = 5;
 	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 4);
-	if (ret_val != RE_SUCCESS)
-	{
-		printf("error %d: write line faild\r\n ", ret_val);
-		return ret_val;
-	}
-	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
-	if (ret_val != RE_SUCCESS)
-	{
-		printf("error %d: write line respond faild\r\n ", ret_val);
-		return ret_val;
-	}
 
-	return ret_val;
-}
-re_error_enum modbus_write_reg(u16 reg_id, u16 val)
-{
-	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
-	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
-	{ 0 };
-
-	pkg_ptr.func = MODBUS_FUNC_WRITE_SINGLE_LINE;
-	data_buf[0] = H_VAL16(reg_id);
-	data_buf[1] = L_VAL4(reg_id);
-	if (val == 1)
-	{
-		data_buf[2] = 0xff;
-		data_buf[3] = 0;
-	}
-	else if (val == 0)
-	{
-		data_buf[2] = 0;
-		data_buf[3] = 0;
-	}
-	else
-	{
-		return RE_INVALID_PARAMETER;
-	}
-
-	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 4);
-	if (ret_val != RE_SUCCESS)
-	{
-		printf("error %d: write line faild\r\n ", ret_val);
-		return ret_val;
-	}
-	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
-	if (ret_val != RE_SUCCESS)
-	{
-		printf("error %d: write line respond faild\r\n ", ret_val);
-		return ret_val;
-	}
-
-	return ret_val;
-}
-re_error_enum modbus_write_mul_reg(u16 start_reg, u16 reg_num, s16 val)
-{
-	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
-	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
-	{ 0 };
-	pkg_ptr.func = MODBUS_FUNC_WRITE_MUL_REGISTER;
-	data_buf[0] = H_VAL16(start_reg);
-	data_buf[1] = L_VAL16(start_reg);
-	data_buf[2] = H_VAL16(reg_num);
-	data_buf[3] = L_VAL16(reg_num);
-	data_buf[4] = 0x02;
-	data_buf[5] = (val >> 8) & 0x00ff;
-	data_buf[6] = (val & 0x00ff);
-	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 7);
+	ret_val = nonstd_send(&pkg_ptr);
 
 	if (ret_val != RE_SUCCESS)
 	{
@@ -315,85 +311,104 @@ re_error_enum modbus_write_mul_reg(u16 start_reg, u16 reg_num, s16 val)
 		return ret_val;
 	}
 	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
+	ret_val = nonstd_receive(&pkg_ptr);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line respond faild\r\n ", ret_val);
 		return ret_val;
 	}
-
+	if (pkg_ptr.cid1 != NONSTD_CID1_AIR)
+	{
+		printf("error %d: receive a unmached package,cid1: %d \r\n ", ret_val, pkg_ptr.cid1);
+		return ret_val;
+	}
 	return ret_val;
 }
 
-re_error_enum modbus_read_binary(u16 start_reg, u16 reg_num, u8* val_num_ptr,
-        u8 *val_ptr)
+re_error_enum nonstd_set_temp(u16 hot_val, u16 cool_val)
 {
 	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
+	nonstd_pkg_struct pkg_ptr =
 	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	u8 data_buf[NONSTD_MAX_BUF_SIZE] =
 	{ 0 };
-	u8 i;
-	pkg_ptr.func = MODBUS_FUNC_READ_LINE;
-	data_buf[0] = H_VAL16(start_reg);
-	data_buf[1] = L_VAL16(start_reg);
-	data_buf[2] = H_VAL16(reg_num);
-	data_buf[3] = L_VAL16(reg_num);
+	data_buf[0] = ((u16)NONSTD_PRIVATE_FUNC_SET_TEMP >> 8) & 0x0f;
+	data_buf[1] = ((u16)NONSTD_PRIVATE_FUNC_SET_TEMP >> 4) & 0x0f;
+	data_buf[2] = ((u16)NONSTD_PRIVATE_FUNC_SET_TEMP) & 0x0f;
+	data_buf[3] = cur_nonstd_air_no;
+	data_buf[4] = (((u16)cool_val/100) >> 8) & 0x0f;
+	data_buf[5] = (((u16)cool_val/10) >> 4) & 0x0f;
+	data_buf[6] = (((u16)cool_val%10)) & 0x0f;
+	data_buf[7] = (((u16)hot_val/100) >> 8) & 0x0f;
+	data_buf[8] = (((u16)hot_val/10) >> 4) & 0x0f;
+	data_buf[9] = (((u16)hot_val%10)) & 0x0f;
+	pkg_ptr.lenid = 10;
 	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 4);
+
+	ret_val = nonstd_send(&pkg_ptr);
+
 	if (ret_val != RE_SUCCESS)
 	{
-		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
+		printf("error %d: write line faild\r\n ", ret_val);
 		return ret_val;
 	}
 	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
+	ret_val = nonstd_receive(&pkg_ptr);
 	if (ret_val != RE_SUCCESS)
 	{
-		printf("error %d: read reg: respond faild\r\n ", ret_val, start_reg);
+		printf("error %d: write line respond faild\r\n ", ret_val);
 		return ret_val;
 	}
-	*val_num_ptr = pkg_ptr.data_ptr[0];
-	for (i = 0; i < *val_num_ptr; i++)
+	if (pkg_ptr.cid1 != NONSTD_CID1_AIR)
 	{
-		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
+		printf("error %d: receive a unmached package,cid1: %d \r\n ", ret_val, pkg_ptr.cid1);
+		return ret_val;
 	}
 	return ret_val;
 }
 
-re_error_enum modbus_read_hold_reg(u16 start_reg, u16 reg_num, u8* val_num_ptr,
-        u8 *val_ptr)
+re_error_enum nonstd_get_status(u8 run_status, u8 run_mode, u16 run_temp)
 {
 	re_error_enum ret_val = RE_SUCCESS;
-	modbus_pkg_struct pkg_ptr =
+	nonstd_pkg_struct pkg_ptr =
 	{ 0 };
-	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	u8 data_buf[NONSTD_MAX_BUF_SIZE] =
 	{ 0 };
-	u8 i;
-	pkg_ptr.func = MODBUS_FUNC_READ_HOLD_REG;
-	data_buf[0] = H_VAL16(start_reg);
-	data_buf[1] = L_VAL16(start_reg);
-	data_buf[2] = H_VAL16(reg_num);
-	data_buf[3] = L_VAL16(reg_num);
+	data_buf[0] = ((u16)NONSTD_PRIVATE_FUNC_GET_STATUS >> 8) & 0x0f;
+	data_buf[1] = ((u16)NONSTD_PRIVATE_FUNC_GET_STATUS >> 4) & 0x0f;
+	data_buf[2] = ((u16)NONSTD_PRIVATE_FUNC_GET_STATUS) & 0x0f;
+	data_buf[3] = cur_nonstd_air_no;
+	data_buf[4] = 0;
+	data_buf[5] = 0;
+
+	pkg_ptr.lenid = 6;
 	pkg_ptr.data_ptr = data_buf;
-	ret_val = modbus_send(&pkg_ptr, 4);
+
+	ret_val = nonstd_send(&pkg_ptr);
+
 	if (ret_val != RE_SUCCESS)
 	{
-		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
+		printf("error %d: write line faild\r\n ", ret_val);
 		return ret_val;
 	}
 	usleep(100000);
-	ret_val = modbus_receive(&pkg_ptr);
+
+	ret_val = nonstd_receive(&pkg_ptr);
 	if (ret_val != RE_SUCCESS)
 	{
-		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
+		printf("error %d: write line respond faild\r\n ", ret_val);
 		return ret_val;
 	}
-	*val_num_ptr = pkg_ptr.data_ptr[0];
-	for (i = 0; i < *val_num_ptr; i++)
+	if (pkg_ptr.cid1 != NONSTD_CID1_AIR)
 	{
-		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
+		printf("error %d: receive a unmached package,cid1: %d \r\n ", ret_val, pkg_ptr.cid1);
+		return ret_val;
 	}
+	run_status = pkg_ptr.data_ptr[4] & 0x01;
+	run_mode = pkg_ptr.data_ptr[6] & 0x03;
+	run_temp = (u16)pkg_ptr.data_ptr[21] * 100;
+	run_temp += (u16)pkg_ptr.data_ptr[22] * 10;
+	run_temp += (u16)pkg_ptr.data_ptr[23];
+
 	return ret_val;
 }
-#endif

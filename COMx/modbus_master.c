@@ -349,7 +349,7 @@ re_error_enum modbus_read_binary(u16 start_reg, u16 reg_num, u8* val_num_ptr,
 	ret_val = modbus_receive(&pkg_ptr);
 	if (ret_val != RE_SUCCESS)
 	{
-		printf("error %d: read reg: respond faild\r\n ", ret_val, start_reg);
+		printf("error %d: read reg: %d respond faild\r\n ", ret_val, start_reg);
 		return ret_val;
 	}
 	*val_num_ptr = pkg_ptr.data_ptr[0];

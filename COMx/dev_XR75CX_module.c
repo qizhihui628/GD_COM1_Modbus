@@ -220,6 +220,7 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 		printf("error %d: invalid key %s\n", re_val, set_mode);
 		return RE_OP_FAIL;
 	}
+	return RE_SUCCESS;
 
 }
 
