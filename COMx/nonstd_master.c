@@ -367,7 +367,7 @@ re_error_enum nonstd_set_temp(u16 hot_val, u16 cool_val)
 	return ret_val;
 }
 
-re_error_enum nonstd_get_status(u8 run_status, u8 run_mode, u16 run_temp)
+re_error_enum nonstd_get_status(u8* run_status, u8* run_mode, u16* run_temp)
 {
 	re_error_enum ret_val = RE_SUCCESS;
 	nonstd_pkg_struct pkg_ptr =
