@@ -404,11 +404,11 @@ re_error_enum nonstd_get_status(u8* run_status, u8* run_mode, u16* run_temp)
 		printf("error %d: receive a unmached package,cid1: %d \r\n ", ret_val, pkg_ptr.cid1);
 		return ret_val;
 	}
-	run_status = pkg_ptr.data_ptr[4] & 0x01;
-	run_mode = pkg_ptr.data_ptr[6] & 0x03;
-	run_temp = (u16)pkg_ptr.data_ptr[21] * 100;
-	run_temp += (u16)pkg_ptr.data_ptr[22] * 10;
-	run_temp += (u16)pkg_ptr.data_ptr[23];
+	*run_status = pkg_ptr.data_ptr[4] & 0x01;
+	*run_mode = pkg_ptr.data_ptr[6] & 0x03;
+	*run_temp = (u16)pkg_ptr.data_ptr[21] * 100;
+	*run_temp += (u16)pkg_ptr.data_ptr[22] * 10;
+	*run_temp += (u16)pkg_ptr.data_ptr[23];
 
 	return ret_val;
 }

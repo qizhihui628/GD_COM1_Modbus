@@ -64,6 +64,7 @@ re_error_enum hex2asc(u8 hex, u8* asc1, u8* asc2)
 	}
 	return RE_SUCCESS;
 }
+
 u8 val2asc(u8 value)
 {
 	u8 asc;
@@ -79,6 +80,7 @@ u8 val2asc(u8 value)
 
 	return asc;
 }
+
 u8 asc2val(u8 asc)
 {
 	u8 val;
@@ -97,6 +99,7 @@ u8 asc2val(u8 asc)
 	}
 	return val;
 }
+
 u8 asc2hex(u8 asc1, u8 asc2)
 {
 

@@ -3,6 +3,7 @@
 #include "modbus_master.h"
 #include "dev_light_mod.h"
 #include "dev_XR75CX_module.h"
+#include "dev_daikin_module.h"
 #define NONE_STANDARD 0
 #define ST_MODEBUS 1
 #define AD_IO_MODBUS 2
@@ -52,13 +53,20 @@ int main(void)
 			printf("error:dev_light_module_monitor failed\n");
 			return 1;
 		}
-*/
+
 		re_val = dev_freeze_module_monitor();
 		if (re_val != RE_SUCCESS)
 		{
 			printf("error:dev_freeze_module_monitor failed\n");
 			return 1;
 		}
+		*/
+		re_val = dev_air_module_monitor();
+				if (re_val != RE_SUCCESS)
+				{
+					printf("error:dev_air_module_monitor failed\n");
+					return 1;
+				}
 		//break;
 
 	}
