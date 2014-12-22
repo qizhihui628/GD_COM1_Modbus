@@ -104,14 +104,15 @@ static void nonstd_pkg_decode(nonstd_pkg_struct* pkg_ptr, u8* data_buf, u8* data
 	for (i = 0; i < pkg_ptr->lenid; i++)
 	{
 		data_buf[13 + i] = val2asc(pkg_ptr->data_ptr[i]);
+		printf("data: %d is %d\r\n", i, pkg_ptr->data_ptr[i]);
 
 	}
-	pkg_ptr->crc_val = checksum(&data_buf[1], (12+i*2));
-	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[13+i*2], &data_buf[14+i*2]);
-	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[15+i*2], &data_buf[16+i*2]);
-	data_buf[17+i*2] = pkg_ptr->eoi = NONSTD_EOI;
+	pkg_ptr->crc_val = checksum(&data_buf[1], (12+i));
+	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[13+i], &data_buf[14+i]);
+	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[15+i], &data_buf[16+i]);
+	data_buf[17+i] = pkg_ptr->eoi = NONSTD_EOI;
 
-	*data_len_ptr = 18+i*2;
+	*data_len_ptr = 18+i;
 }
 
 static re_error_enum nonstd_pkg_encode(u8* data_buf, nonstd_pkg_struct* pkg_ptr, u16 len)

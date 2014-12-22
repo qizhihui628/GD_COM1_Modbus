@@ -4,16 +4,17 @@
 #include "dev_light_mod.h"
 #include "dev_XR75CX_module.h"
 #include "dev_daikin_module.h"
+
 #define NONE_STANDARD 0
 #define ST_MODEBUS 1
 #define AD_IO_MODBUS 2
 #define PROTOCAL_NUM 3
-#define CURRENT_PROTOCAL ST_MODEBUS
+#define CURRENT_PROTOCAL NONE_STANDARD
 
 
 #define DEV_AMS_ADDR 0x01
 #define DEV_LIGHT_MODUL_ADDR 0x01
-static char *dev_name_array[PROTOCAL_NUM] = { "/dev/ttyS1", "/dev/ttyS1", "/dev/ttyS3" };
+static char *dev_name_array[PROTOCAL_NUM] = { "/dev/ttyS1", "/dev/ttyS1", "/dev/ttyS1" };
 //static char *dev_name_array[PROTOCAL_NUM] = {"/dev/ttymxc1", "/dev/ttymxc1", "/dev/ttymxc2"};
 int main(void)
 {
@@ -25,7 +26,7 @@ int main(void)
 	 returns a file descriptor */
 	// open_input_source
 #if CURRENT_PROTOCAL == NONE_STANDARD
-	if (modbus_creat(dev_name_array[NONE_STANDARD], 9600) != RE_SUCCESS)
+	if (nonstd_creat(dev_name_array[NONE_STANDARD], 9600) != RE_SUCCESS)
 	{
 		printf("error : none standard protocol init failed\n");
 		//exit(1);

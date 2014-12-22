@@ -68,7 +68,7 @@ re_error_enum hex2asc(u8 hex, u8* asc1, u8* asc2)
 u8 val2asc(u8 value)
 {
 	u8 asc;
-	asc = (value & 0xf0) >> 4;
+	asc = (value & 0x0f);
 	if ((asc <= 9) && (asc >= 0))
 	{
 		asc += 0x30;
