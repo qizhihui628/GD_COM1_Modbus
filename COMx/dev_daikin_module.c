@@ -354,7 +354,6 @@ static re_error_enum dev_air_module_init(void)
 static re_error_enum dev_air_module_switch(u8 air_mod_id, u8 air_id)
 {
 	int result;
-	char * air_id_str;
 
 	if (air_mod_id > match_air_module_num || air_id > match_air_num)
 	{

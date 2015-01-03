@@ -3,6 +3,8 @@
 #include "system.h"
 #include "sql_op.h"
 #include <stdio.h>
+#include "pthread.h"
+extern pthread_mutex_t thread_mutex;
 
 #define MODBUS_CONFIG_DB "./DataBase/ModBus_Config.db"
 #define FREEZE_REGISTER_TABLE "Freezing_Register"
@@ -354,7 +356,7 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 		return RE_OP_FAIL;
 	}
 	if (freeze_module_array[freeze_mod_id].module_addr
-	        == 0|| strcmp(freeze_module_array[freeze_mod_id].module_table, "") == 0)
+	        == 0 || strcmp(freeze_module_array[freeze_mod_id].module_table, "") == 0)
 	{
 		printf("error: freeze module: %d disable or do not exist\r\n",
 		        freeze_mod_id);
@@ -453,20 +455,24 @@ re_error_enum dev_freeze_module_monitor(void)
 {
 	re_error_enum re_val = RE_SUCCESS;
 	int i;
-
-	re_val = dev_freeze_module_init();
-	if (re_val != RE_SUCCESS)
+	while (1)
 	{
-		printf("error: freeze module init failed\r\n");
-		return re_val;
-	}
-	for (i = 0; i < match_freeze_module_num; i++)
-	{
-		re_val = dev_freeze_module_switch(i);
+		printf("freeze module thread\r\n");
+		re_val = dev_freeze_module_init();
 		if (re_val != RE_SUCCESS)
 		{
-			printf("error: freeze module %d: operation failed\r\n", i);
-			return re_val;
+			printf("error: freeze module init failed\r\n");
+			continue;
+		}
+		for (i = 0; i < match_freeze_module_num; i++)
+		{
+			pthread_mutex_lock(&thread_mutex);
+			re_val = dev_freeze_module_switch(i);
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error: freeze module %d: operation failed\r\n", i);
+			}
+			pthread_mutex_unlock(&thread_mutex);
 		}
 	}
 

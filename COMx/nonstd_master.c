@@ -109,7 +109,7 @@ static void nonstd_pkg_decode(nonstd_pkg_struct* pkg_ptr, u8* data_buf, u8* data
 	}
 	pkg_ptr->crc_val = checksum(&data_buf[1], (12+i));
 	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[13+i], &data_buf[14+i]);
-	hex2asc(H_VAL16(pkg_ptr->crc_val), &data_buf[15+i], &data_buf[16+i]);
+	hex2asc(L_VAL16(pkg_ptr->crc_val), &data_buf[15+i], &data_buf[16+i]);
 	data_buf[17+i] = pkg_ptr->eoi = NONSTD_EOI;
 
 	*data_len_ptr = 18+i;

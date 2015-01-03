@@ -1,6 +1,8 @@
 #include "serial.h"
 #include "crc_check.h"
 #include "modbus_master.h"
+#include "pthread.h"
+static pthread_mutex_t mymutex=PTHREAD_MUTEX_INITIALIZER;
 
 #define MODBUS_MAX_BUF_SIZE 50
 #define MODBUS_MAX_DATA_SIZE 50
@@ -132,6 +134,7 @@ re_error_enum modbus_receive(modbus_pkg_struct *pkg_ptr)
 
 void modbus_dev_switch(u8 addr)
 {
+	printf("dev addr switch to %d\r\n", addr);
 	cur_modbus_dev = addr;
 }
 
@@ -150,22 +153,26 @@ re_error_enum modbus_write_mul_line(u8 start_line, u8 line_num, u8 val)
 	data_buf[4] = 0x01;
 	data_buf[5] = val;
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 6);
 
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line respond faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
 
-	return ret_val;
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
 }
 
 re_error_enum modbus_read_line(u8 start_line, u8 line_num, u8* val_num_ptr,
@@ -183,25 +190,29 @@ re_error_enum modbus_read_line(u8 start_line, u8 line_num, u8* val_num_ptr,
 	data_buf[2] = H_VAL4(line_num);
 	data_buf[3] = L_VAL4(line_num);
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 4);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: read line faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: read line respond faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
 	*val_num_ptr = pkg_ptr.data_ptr[0];
 	for (i = 0; i < *val_num_ptr; i++)
 	{
 		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
 	}
-	return ret_val;
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
 }
 
 re_error_enum modbus_write_line(u8 line_id, u8 val)
@@ -231,20 +242,23 @@ re_error_enum modbus_write_line(u8 line_id, u8 val)
 	}
 
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 4);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line respond faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
-
+	error:
+	pthread_mutex_unlock(&mymutex);
 	return ret_val;
 }
 re_error_enum modbus_write_reg(u16 reg_id, u16 val)
@@ -274,21 +288,25 @@ re_error_enum modbus_write_reg(u16 reg_id, u16 val)
 	}
 
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 4);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line respond faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
 
-	return ret_val;
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
 }
 re_error_enum modbus_write_mul_reg(u16 start_reg, u16 reg_num, s16 val)
 {
@@ -306,22 +324,26 @@ re_error_enum modbus_write_mul_reg(u16 start_reg, u16 reg_num, s16 val)
 	data_buf[5] = (val >> 8) & 0x00ff;
 	data_buf[6] = (val & 0x00ff);
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 7);
 
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: write line respond faild\r\n ", ret_val);
-		return ret_val;
+		goto error;
 	}
 
-	return ret_val;
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
 }
 
 re_error_enum modbus_read_binary(u16 start_reg, u16 reg_num, u8* val_num_ptr,
@@ -339,25 +361,29 @@ re_error_enum modbus_read_binary(u16 start_reg, u16 reg_num, u8* val_num_ptr,
 	data_buf[2] = H_VAL16(reg_num);
 	data_buf[3] = L_VAL16(reg_num);
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 4);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: read reg: %d respond faild\r\n ", ret_val, start_reg);
-		return ret_val;
+		goto error;
 	}
 	*val_num_ptr = pkg_ptr.data_ptr[0];
 	for (i = 0; i < *val_num_ptr; i++)
 	{
 		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
 	}
-	return ret_val;
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
 }
 
 re_error_enum modbus_read_hold_reg(u16 start_reg, u16 reg_num, u8* val_num_ptr,
@@ -375,23 +401,27 @@ re_error_enum modbus_read_hold_reg(u16 start_reg, u16 reg_num, u8* val_num_ptr,
 	data_buf[2] = H_VAL16(reg_num);
 	data_buf[3] = L_VAL16(reg_num);
 	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
 	ret_val = modbus_send(&pkg_ptr, 4);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
-		return ret_val;
+		goto error;
 	}
-	usleep(100000);
+	usleep(280000);
 	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
 	if (ret_val != RE_SUCCESS)
 	{
 		printf("error %d: read reg: %d faild\r\n ", ret_val, start_reg);
-		return ret_val;
+		goto error;
 	}
 	*val_num_ptr = pkg_ptr.data_ptr[0];
 	for (i = 0; i < *val_num_ptr; i++)
 	{
 		val_ptr[i] = pkg_ptr.data_ptr[1 + i];
 	}
-	return ret_val;
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
 }

@@ -7,5 +7,5 @@ typedef struct{
 	char module_table[20];
 	int module_addr;
 }freeze_module_struct;
-re_error_enum dev_temp_module_monitor(void);
+re_error_enum dev_freeze_module_monitor(void);
 #endif

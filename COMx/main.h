@@ -10,5 +10,4 @@ typedef enum
 	PROTOCAL_NUM=3,
 }protocal_mode_enum;
 
-
 #endif

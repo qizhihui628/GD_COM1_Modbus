@@ -3,6 +3,8 @@
 #include "system.h"
 #include "sql_op.h"
 #include <stdio.h>
+#include "pthread.h"
+extern pthread_mutex_t thread_mutex;
 
 #define MODBUS_CONFIG_DB "./DataBase/ModBus_Config.db"
 #define POWER_REGISTER_TABLE "Power_Register"
@@ -250,7 +252,6 @@ re_error_enum dev_power_module_monitor(void)
 	{
 		printf("power module thread\r\n");
 		//sleep(10);
-#if 1
 		get_current_time(&other, &other, &other, &day, &other, &other, &other);
 		printf("get_current_time->done\r\n");		//jj
 		if (pre_day != day)
@@ -266,17 +267,17 @@ re_error_enum dev_power_module_monitor(void)
 		}
 		for (i = 0; i < match_power_module_num; i++)
 		{
+			pthread_mutex_lock(&thread_mutex);
 			re_val = dev_power_module_switch(i);
 			if (re_val != RE_SUCCESS)
 			{
 				printf("error: power module %d: operation failed\r\n", i);
-				break;
 			}
+			pthread_mutex_unlock(&thread_mutex);
 		}
 
 		sleep(4);
 		pre_day = day;
-#endif
 	}
 
 	return RE_SUCCESS;

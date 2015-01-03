@@ -3,7 +3,9 @@
 #include "system.h"
 #include "sql_op.h"
 #include <stdio.h>
+#include "pthread.h"
 
+extern pthread_mutex_t thread_mutex;
 #define MODBUS_CONFIG_DB "./DataBase/ModBus_Config.db"
 #define LIGHT_REGISTER_TABLE "Light_Register"
 #define LIGHT_ADDR "Address"
@@ -158,6 +160,12 @@ static int enter_record_set_value(void * para, int n_column, char ** column_valu
 	{
 		if (match_time_key(column_name[i], TIME_KEY_PATTERN, NULL) == 0)
 		{
+			printf("cur time is %s, config time is %s \r\n", cur_time, column_value[i]);
+			if (column_value[i] == NULL)
+			{
+				match_record_flag = 1;
+				return 0;
+			}
 			if (strcmp(cur_time, column_value[i]) < 0)
 			{
 				printf(" %s is %s,switch %d\r\n", column_name[i], column_value[i], switch_no);
@@ -335,23 +343,27 @@ re_error_enum dev_light_module_monitor(void)
 {
 	re_error_enum re_val = RE_SUCCESS;
 	int i;
-
-	re_val = dev_light_module_init();
-	if (re_val != RE_SUCCESS)
+	while(1)
 	{
-		printf("error: light module init failed\r\n");
-		return re_val;
-	}
-	for (i = 0; i < match_light_module_num; i++)
-	{
-		re_val = dev_light_module_switch(i);
+		printf("light module thread\r\n");
+		sleep(2);
+		re_val = dev_light_module_init();
 		if (re_val != RE_SUCCESS)
 		{
-			printf("error: light module %d: operation failed\r\n", i);
-			return re_val;
+			printf("error: light module init failed\r\n");
+			continue;
+		}
+		for (i = 0; i < match_light_module_num; i++)
+		{
+			pthread_mutex_lock(&thread_mutex);
+			re_val = dev_light_module_switch(i);
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error: light module %d: operation failed\r\n", i);
+			}
+			pthread_mutex_unlock(&thread_mutex);
 		}
 	}
-
 	return RE_SUCCESS;
 }
 

@@ -2,9 +2,13 @@
 #include <regex.h>
 #include <sys/time.h>
 #include <time.h>
+#include <signal.h>
 #include <string.h>
+
+typedef int (*module_monitor_func)(void);
 #define MAX_BUF_SIZE 20
 static char string_buf[MAX_BUF_SIZE] = {0};
+
 void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
         int* weekday_ptr, int *hour_ptr, int *minitue_ptr, int *second_ptr)
 {
@@ -50,3 +54,4 @@ int match_time_key(char *string, char* pattern, char** sub_pptr)
 	}
 	return 0;
 }
+
