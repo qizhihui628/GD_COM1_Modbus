@@ -16,6 +16,7 @@ static pthread_mutex_t mymutex=PTHREAD_MUTEX_INITIALIZER;
 #define MODBUS_FUNC_WRITE_SINGLE_LINE 0x05
 #define MODBUS_FUNC_WRITE_MUL_LINE 0x0f
 #define MODBUS_FUNC_WRITE_MUL_REGISTER 0x10
+
 typedef struct
 {
 	u8 addr;
@@ -271,7 +272,7 @@ re_error_enum modbus_write_reg(u16 reg_id, u16 val)
 
 	pkg_ptr.func = MODBUS_FUNC_WRITE_SINGLE_LINE;
 	data_buf[0] = H_VAL16(reg_id);
-	data_buf[1] = L_VAL4(reg_id);
+	data_buf[1] = L_VAL16(reg_id);
 	if (val == 1)
 	{
 		data_buf[2] = 0xff;

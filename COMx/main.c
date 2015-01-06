@@ -21,7 +21,7 @@ static char *dev_name_array[PROTOCAL_NUM] = { "/dev/ttyS1", "/dev/ttyS1", "/dev/
 //static char *dev_name_array[PROTOCAL_NUM] = {"/dev/ttymxc1", "/dev/ttymxc1", "/dev/ttymxc2"};
 int main(void)
 {
-	re_error_enum re_val = RE_SUCCESS;
+
 	bool loop = 1; /* loop while TRUE */
 	pthread_t pid1, pid2;
 	modbus_init();

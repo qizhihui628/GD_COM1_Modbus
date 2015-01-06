@@ -15,11 +15,20 @@ extern pthread_mutex_t thread_mutex;
 #define FREEZE_DB "./DataBase/Freezing.db"
 
 #define FREEZE_DAY_TYPE "Date_Type"
+
 #define FREEZE_STATUS_TABLE "Freezing_Status"
 #define FREEZE_ADDRESS "Freezing_Address"
 #define FREEZE_RUNNING_STATE "Running_State"
 #define FREEZE_RUNNING_MODE "Running_Mode"
 #define FREEZE_RUNNING_TEMPERATURE "Running_Temperature"
+
+#define FREEZE_CONFIG_TABLE "Freezing_Config"
+#define FREEZE_COMP_DELAY "Comp_Delay"
+#define FREEZE_TEMP_DIFF "Temp_Differential"
+#define FREEZE_SENSOR_CRCT "Sensor_Correct"
+#define FREEZE_HIGH_ALARM "High_Alarm"
+#define FREEZE_LOW_ALARM "Low_Alarm"
+#define FREEZE_ALARM_DELAY "Alarm_Delay"
 
 #define MAX_FREEZE_MODULE_NUMBER 8
 
@@ -28,19 +37,33 @@ extern pthread_mutex_t thread_mutex;
 #define TIME_MODE_PATTERN "^Mode([0-9]+)$"
 #define TIME_TEMPERATURE_PATTERN "^Temperature([0-9]+)$"
 
+#define TIME_MODE1 "Mode1"
+
 #define MODE_DEFROST_PATTERN "defrost"
 #define MODE_ON_PATTERN "normal"
 #define MODE_OFF_PATTERN "off"
+#define MODE_LIGHT_ON_PATTERN "light"
+#define MODE_DEMIST_PATTERN "demist"
 
 #define TIME_PATTERN_NUM 4
 #define FREEZE_STATUS_NUM 2
 
-#define FREEZE_SET_REG_ADDR 0x0376
-#define FREEZE_RD_SET_REG_ADDR 0x0600
-#define FREEZE_FROST_REG_ADDR 0x0201
-#define FREEZE_SET_FROST_TIME_ADDR 0x0321
-#define FREEZE_SET_FROST_TEMPERATURE_ADDR 0x031E
+#define FREEZE_SET_REG_ADDR                 0x0376
+#define FREEZE_RD_SET_REG_ADDR              0x0108
+#define FREEZE_FROST_REG_ADDR               0x0201
+#define FREEZE_SET_FROST_TIME_ADDR          0x0321
+#define FREEZE_SET_FROST_TEMPERATURE_ADDR   0x031E
+
+#define FREEZE_SET_COMP_DELAY_ADDR          0x030C
+#define FREEZE_SET_TEMP_DIFF_ADDR           0x0301
+#define FREEZE_SET_SENSOR_CR_ADDR           0x0304
+#define FREEZE_SET_HIGH_ALARM_ADDR          0x0338
+#define FREEZE_SET_LOW_ALARM_ADDR           0x0339
+#define FREEZE_SET_ALARM_DELAY_ADDR         0x033b
+
 #define FREEZE_ON_OFF_REG_ADDR 0x0200
+#define FREEZE_ON_LIGHT_ADDR 0x021A
+#define FREEZE_DEMIST_ADDR 0x0222
 #define FREEZE_SET_REG_NUM 1
 
 #define FREEZE_RD_STATUS_ADDR 0x0200
@@ -48,7 +71,7 @@ extern pthread_mutex_t thread_mutex;
 #define FREEZE_FROST_ADDR 0x0002
 #define FREEZE_ON_OFF_ADDR 0x0001
 
-
+#define FREEZE_MAX_DEFROST_TIME 255
 static u8 match_record_flag = 0;
 static u8 match_freeze_module_num = 0;
 static u8 current_module_id = 0;
@@ -86,6 +109,23 @@ static void dev_freeze_select_date(void)
 	{
 		sql_select_where_equal(FREEZE_DAY_TYPE, "workday");
 	}
+
+}
+
+static void dev_freeze_select_light_on_forever(void)
+{
+
+		sql_select_where_equal(FREEZE_DAY_TYPE, "forever");
+		sql_add(" and ");
+		sql_select_where_equal(TIME_MODE1, MODE_LIGHT_ON_PATTERN);
+}
+
+static void dev_freeze_select_demist_forever(void)
+{
+
+		sql_select_where_equal(FREEZE_DAY_TYPE, "forever");
+		sql_add(" and ");
+		sql_select_where_equal(TIME_MODE1, MODE_DEMIST_PATTERN);
 }
 
 static void dev_freeze_select_modue(void)
@@ -100,32 +140,6 @@ static void dev_freeze_select_module_st(void)
 	        freeze_module_array[current_module_id].module_addr);
 	sql_select_where_equal(FREEZE_ADDRESS, cur_addr);
 }
-
-static void dev_freeze_update_module_st(void *value_ptr)
-{
-	char cur_temp[5] = {0};
-	if((*(int *) value_ptr & FREEZE_ON_OFF_ADDR)== 0)
-	{
-		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_OFF_PATTERN);
-		match_record_flag = 1;
-		return;
-	}
-	if ((*(int *) value_ptr & FREEZE_FROST_ADDR)== FREEZE_FROST_ADDR)
-	{
-		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_DEFROST_PATTERN);
-		match_record_flag = 1;
-	}
-	else if ((*(int *) value_ptr & FREEZE_ON_OFF_ADDR)== FREEZE_ON_OFF_ADDR)
-	{
-		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_ON_PATTERN);
-		match_record_flag = 1;
-	}
-	sql_add(",");
-	sprintf((char*) cur_temp, "%d", (*((int *) value_ptr+1)));
-	printf("set val: %d\r\n",(*((int *) value_ptr+1)));
-	sql_select_where_equal(FREEZE_RUNNING_TEMPERATURE, cur_temp);
-}
-
 static re_error_enum dev_freeze_status_update(int *value_ptr)
 {
 	u8 val_num = 1;
@@ -150,6 +164,7 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 	u8 val_num = 2;
 	u8 val_buf[5] = { 0 };
 	re_error_enum re_val;
+	short tmp;
 
 	re_val = modbus_read_hold_reg(FREEZE_RD_SET_REG_ADDR, FREEZE_SET_REG_NUM, &val_num, val_buf);
 
@@ -161,8 +176,11 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 	if (val_num == 2)
 	{
 		printf("val1: %d, val2: %d\r\n", val_buf[0], val_buf[1]);
-		*value_ptr = (((u16)val_buf[0] << 8) | (u16)val_buf[1])/10;
-		printf("val1: %d, val2: %d, val: %d\r\n", val_buf[0], val_buf[1], *value_ptr);
+		//tmp = ((short)(0xff << 8 | 0x23))/10;
+		tmp = ((short)(val_buf[0] << 8 | val_buf[1]))/10;
+		*value_ptr = tmp;
+		//*value_ptr = (((char)val_buf[0] << 8) | (char)val_buf[1])/10;
+		printf("val1: %d, val2: %d, tmp: %04x val: %d\r\n", val_buf[0], val_buf[1], tmp,*value_ptr);
 	}
 	else
 	{
@@ -173,6 +191,166 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 	return RE_SUCCESS;
 }
 
+static void dev_freeze_update_module_st(void *value_ptr)
+{
+	char cur_temp[5] = {0};
+	int mode, temp;
+
+	re_error_enum re_val;
+
+	re_val = dev_freeze_status_update(&mode);
+	if (re_val != RE_SUCCESS)
+	{
+		printf("error %d: serial read status failed\n", re_val);
+		return;
+	}
+
+	re_val = dev_freeze_temperature_update(&temp);
+	if (re_val != RE_SUCCESS)
+	{
+		printf("error %d: serial read temperature failed\n", re_val);
+		return;
+	}
+
+	if((mode & FREEZE_ON_OFF_ADDR) == 0)
+	{
+		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_OFF_PATTERN);
+		match_record_flag = 1;
+		return;
+	}
+	if ((mode & FREEZE_FROST_ADDR)== FREEZE_FROST_ADDR)
+	{
+		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_DEFROST_PATTERN);
+		match_record_flag = 1;
+	}
+	else if ((mode & FREEZE_ON_OFF_ADDR)== FREEZE_ON_OFF_ADDR)
+	{
+		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_ON_PATTERN);
+		match_record_flag = 1;
+	}
+	sql_add(",");
+	sprintf((char*) cur_temp, "%d", temp);
+	printf("set val: %d\r\n",temp);
+	sql_select_where_equal(FREEZE_RUNNING_TEMPERATURE, cur_temp);
+}
+
+static int dev_freeze_config_module(void * para, int n_column,
+        char ** column_value, char ** column_name)
+{
+	int i;
+	re_error_enum re_val;
+	for (i = 0; i < n_column; i++)
+	{
+		if (strcmp(column_value[i], "") == 0)
+		{
+			continue;
+		}
+		printf("key is %s, value is %s \r\n", column_name[i], column_value[i]);
+		if (strcmp(column_name[i], FREEZE_COMP_DELAY) == 0)
+		{
+
+			re_val = modbus_write_mul_reg(FREEZE_SET_COMP_DELAY_ADDR,
+			FREEZE_SET_REG_NUM, atoi(column_value[i]));
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error %d: serial set comp delay failed\n", re_val);
+			}
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_TEMP_DIFF) == 0)
+		{
+			re_val = modbus_write_mul_reg(FREEZE_SET_TEMP_DIFF_ADDR,
+			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error %d: serial set temp diff failed\n", re_val);
+			}
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_SENSOR_CRCT) == 0)
+		{
+
+			re_val = modbus_write_mul_reg(FREEZE_SET_SENSOR_CR_ADDR,
+			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error %d: serial set sensor correct failed\n", re_val);
+			}
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_HIGH_ALARM) == 0)
+		{
+			re_val = modbus_write_mul_reg(FREEZE_SET_HIGH_ALARM_ADDR,
+			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error %d: serial set high alarm failed\n", re_val);
+			}
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_LOW_ALARM) == 0)
+		{
+
+			re_val = modbus_write_mul_reg(FREEZE_SET_LOW_ALARM_ADDR,
+			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error %d: serial set low alarm failed\n", re_val);
+			}
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_ALARM_DELAY) == 0)
+		{
+			re_val = modbus_write_mul_reg(FREEZE_SET_ALARM_DELAY_ADDR,
+			FREEZE_SET_REG_NUM, atoi(column_value[i]));
+			if (re_val != RE_SUCCESS)
+			{
+				printf("error %d: serial set alarm delay failed\n", re_val);
+
+			}
+			match_record_flag++;
+		}
+
+	}
+	return 0;
+}
+
+static int dev_freeze_force_light_on(void * para, int n_column,
+        char ** column_value, char ** column_name)
+{
+	re_error_enum re_val;
+	match_record_flag++;
+	printf("light on\r\n");
+	re_val = modbus_write_reg(FREEZE_ON_LIGHT_ADDR, 1);
+	if (re_val != RE_SUCCESS)
+	{
+		printf("error %d: serial write line failed\n", re_val);
+		return 0;
+	}
+
+
+	return 0;
+
+}
+
+static int dev_freeze_force_demist(void * para, int n_column,
+        char ** column_value, char ** column_name)
+{
+	re_error_enum re_val;
+	match_record_flag++;
+	printf("demist on\r\n");
+	re_val = modbus_write_reg(FREEZE_DEMIST_ADDR, 1);
+	if (re_val != RE_SUCCESS)
+	{
+		printf("error %d: serial write line failed\n", re_val);
+		return 0;
+	}
+	match_record_flag++;
+
+	return 0;
+
+}
+
 static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, int set_time)
 {
 	re_error_enum re_val = RE_SUCCESS;
@@ -180,13 +358,21 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 	{
 		cur_mode_array[current_module_id] = "";
 	}
-	printf("cur id: %d, cur mode : %s\r\n", current_module_id, cur_mode_array[current_module_id]);
-	if (strcmp(set_mode, MODE_DEFROST_PATTERN) == 0
-			&& strcmp(cur_mode_array[current_module_id], MODE_DEFROST_PATTERN) != 0)
+	printf("cur id: %d, cur mode : %s\r\n", current_module_id,
+	        cur_mode_array[current_module_id]);
+	if ( strcmp(set_mode, MODE_DEFROST_PATTERN) == 0
+	        && strcmp(cur_mode_array[current_module_id], MODE_DEFROST_PATTERN) != 0 )
 	{
 		printf("set defrost time :%d, ter temp: %s\r\n", set_time, set_value);
-		re_val = modbus_write_mul_reg(FREEZE_SET_FROST_TIME_ADDR, FREEZE_SET_REG_NUM, set_time);
-		re_val |= modbus_write_mul_reg(FREEZE_SET_FROST_TEMPERATURE_ADDR, FREEZE_SET_REG_NUM, (atoi(set_value)*10));
+		if (set_time > FREEZE_MAX_DEFROST_TIME || set_time < 0)
+		{
+			printf("error: set exceed max defrost time limit:%d \r\n", FREEZE_MAX_DEFROST_TIME);
+			return RE_OP_FAIL;
+		}
+		re_val = modbus_write_mul_reg(FREEZE_SET_FROST_TIME_ADDR,
+		        FREEZE_SET_REG_NUM, set_time);
+		re_val |= modbus_write_mul_reg(FREEZE_SET_FROST_TEMPERATURE_ADDR,
+		        FREEZE_SET_REG_NUM, (atoi(set_value) * 10));
 		re_val |= modbus_write_reg(FREEZE_FROST_REG_ADDR, 1);
 		if (re_val != RE_SUCCESS)
 		{
@@ -199,7 +385,8 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 	{
 
 		re_val = modbus_write_reg(FREEZE_ON_OFF_REG_ADDR, 1);
-		re_val |= modbus_write_mul_reg(FREEZE_SET_REG_ADDR, FREEZE_SET_REG_NUM, (atoi(set_value)*10));
+		re_val |= modbus_write_mul_reg(FREEZE_SET_REG_ADDR, FREEZE_SET_REG_NUM,
+		        (atoi(set_value) * 10));
 		if (re_val != RE_SUCCESS)
 		{
 			printf("error %d: serial write line failed\n", re_val);
@@ -217,13 +404,8 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 		}
 		cur_mode_array[current_module_id] = MODE_OFF_PATTERN;
 	}
-	else
-	{
-		printf("error %d: invalid key %s\n", re_val, set_mode);
-		return RE_OP_FAIL;
-	}
-	return RE_SUCCESS;
 
+	return RE_SUCCESS;
 }
 
 static int enter_record_get_module_info(void * para, int n_column,
@@ -280,6 +462,11 @@ static int enter_record_set_value(void * para, int n_column, char ** column_valu
 				minute = (hour_end - hour_st) * 60 + (minute_end - minute_st);
 
 				printf(" %s is %s\r\n", column_name[column_no+4], column_value[column_no+4]);
+				if (column_value[column_no+4] == NULL || column_value[column_no+5] == NULL)
+				{
+					printf("error:invalid key value\r\n");
+					return 1;
+				}
 				dev_freeze_ctrl_mode_set(column_value[column_no+4], column_value[column_no+5], minute);
 				printf(" %s is %s\r\n", column_name[column_no+5], column_value[column_no+5]);
 				match_record_flag = 1;
@@ -287,30 +474,6 @@ static int enter_record_set_value(void * para, int n_column, char ** column_valu
 			}
 	}
 
-	return 0;
-}
-
-static int enter_record_get_value(void * para, int n_column, char ** column_value,
-        char ** column_name)
-{
-	int i;
-	for (i = 0; i < n_column; i++)
-	{
-		if (strcmp(column_name[i], FREEZE_RUNNING_MODE) == 0)
-		{
-
-			dev_freeze_status_update((int *) para);
-			match_record_flag++;
-		}
-		if (strcmp(column_name[i], FREEZE_RUNNING_TEMPERATURE) == 0)
-		{
-
-			dev_freeze_temperature_update((int *) para+1);
-			match_record_flag++;
-		}
-
-
-	}
 	return 0;
 }
 
@@ -347,8 +510,8 @@ static re_error_enum dev_freeze_module_init(void)
 
 static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 {
-	int value_buf[FREEZE_STATUS_NUM] = {0};
 	int result;
+
 	if (freeze_mod_id > match_freeze_module_num)
 	{
 		printf("error: freeze module: %d disable or do not exist\r\n",
@@ -365,7 +528,8 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	current_module_id = freeze_mod_id;
 	modbus_dev_switch(freeze_module_array[freeze_mod_id].module_addr);
 	match_record_flag = 0;
-	/*control the freeze according to the config in responding table*/
+
+	/*control the freeze */
 	result = sql_select(FREEZE_DB, freeze_module_array[freeze_mod_id].module_table,
 	        dev_freeze_select_spec_date, enter_record_set_value, NULL);
 	if (result != 0)
@@ -402,32 +566,80 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 			return RE_OP_FAIL;
 		}
 	}
-
-	/*get the value to status table*/
-	result = sql_select(FREEZE_DB, FREEZE_STATUS_TABLE,
-	        dev_freeze_select_module_st, enter_record_get_value, value_buf);
+	/*force control the freeze according to the config in responding table*/
+	result = sql_select(FREEZE_DB,
+	        freeze_module_array[freeze_mod_id].module_table,
+	        dev_freeze_select_light_on_forever, dev_freeze_force_light_on,
+	        NULL);
 	if (result != 0)
 	{
-		printf("error: db: %s,freeze: %s disable or do not exist\r\n", FREEZE_DB,
-		FREEZE_STATUS_TABLE);
+		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+		        FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
 		return RE_OP_FAIL;
 	}
-	if (match_record_flag == FREEZE_STATUS_NUM)
+	if (match_record_flag)
 	{
 		match_record_flag = 0;
-
 	}
 	else
 	{
 		match_record_flag = 0;
-		printf("error: db: %s,table: %s configure error\r\n", FREEZE_DB,
-		FREEZE_STATUS_TABLE);
-		return RE_OP_FAIL;
+		printf("light off\r\n");
+		result = modbus_write_reg(FREEZE_ON_LIGHT_ADDR, 0);
+		if (result != 0)
+		{
+			printf("error: force freeze light off failed \r\n");
+		}
 	}
 
+	result = sql_select(FREEZE_DB,
+	        freeze_module_array[freeze_mod_id].module_table,
+	        dev_freeze_select_demist_forever, dev_freeze_force_demist,
+	        NULL);
+	if (result != 0)
+	{
+		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+		        FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
+	}
+	if (match_record_flag)
+	{
+		match_record_flag = 0;
+	}
+	else
+	{
+		match_record_flag = 0;
+		printf("demist off\r\n");
+		result = modbus_write_reg(FREEZE_DEMIST_ADDR, 0);
+		if (result != 0)
+		{
+			printf("error: force freeze demist off failed \r\n");
+		}
+	}
+	/*config value in config table*/
+		result = sql_select(FREEZE_DB, FREEZE_CONFIG_TABLE,
+		        dev_freeze_select_module_st, dev_freeze_config_module, NULL);
+		if (result != 0)
+		{
+			match_record_flag = 0;
+			printf("error: db: %s,freeze: %s disable or do not exist\r\n", FREEZE_DB,
+			FREEZE_STATUS_TABLE);
+			return RE_OP_FAIL;
+		}
+		if (match_record_flag)
+		{
+			match_record_flag = 0;
+
+		}
+		else
+		{
+			match_record_flag = 0;
+			printf("error: db: %s,table: %s set error\r\n", FREEZE_DB,
+			FREEZE_CONFIG_TABLE);
+			return RE_OP_FAIL;
+		}
 	/*Update value in status table*/
 	result = sql_update(FREEZE_DB, FREEZE_STATUS_TABLE,
-	        dev_freeze_select_module_st, dev_freeze_update_module_st, value_buf);
+	        dev_freeze_select_module_st, dev_freeze_update_module_st, NULL);
 	if (result != 0)
 	{
 		match_record_flag = 0;
@@ -474,8 +686,8 @@ re_error_enum dev_freeze_module_monitor(void)
 			}
 			pthread_mutex_unlock(&thread_mutex);
 		}
+		sleep(5);
 	}
 
 	return RE_SUCCESS;
 }
-

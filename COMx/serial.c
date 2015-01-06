@@ -96,7 +96,7 @@ re_error_enum serial_write(int fd, u8 *buf_ptr, u8 buf_size)
 	printf("send  %d bytes:\n", buf_size);
 	for (i = 0; i < buf_size; i++)
 	{
-		printf("%x ", buf_ptr[i]);
+		printf("%02x ", buf_ptr[i]);
 	}
 	printf("\r\n");
 #endif
@@ -130,7 +130,7 @@ re_error_enum serial_read(int fd, u8 max_size, u8 *buf_ptr, u8* buf_size_ptr)
 	printf("read  %d success:\n", res);
 	for (i = 0; i < res; i++)
 	{
-		printf("%x ", buf_ptr[i]);
+		printf("%02x ", buf_ptr[i]);
 	}
 	printf("\r\n");
 #endif

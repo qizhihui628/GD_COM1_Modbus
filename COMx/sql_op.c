@@ -50,14 +50,14 @@ int sql_select(char* db_name, char* table_name, select_callback select_record,
 	char ** errmsg = NULL;
 	pthread_mutex_lock(&mymutex);
 	result = sqlite3_open(db_name, &db);
-
+	sql_clear_where();
 	if (result != SQLITE_OK)
 	{
 		printf("open db: %s failed error: %d \r\n", db_name, result);
 		result = -1;
 		goto error;
 	}
-	sql_clear_where();
+
 	strcat(base_exp, "select * from ");
 	strcat(base_exp, table_name);
 	strcat(base_exp, " where ");
@@ -65,7 +65,7 @@ int sql_select(char* db_name, char* table_name, select_callback select_record,
 	result = sqlite3_exec(db, base_exp, sql_callback, para, errmsg);
 	if (result != SQLITE_OK)
 	{
-		printf("open sql table: light1 failed\r\n");
+		printf("open sql table: %s failed\r\n", table_name);
 		result = -1;
 		goto error;
 	}

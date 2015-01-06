@@ -346,7 +346,7 @@ re_error_enum dev_light_module_monitor(void)
 	while(1)
 	{
 		printf("light module thread\r\n");
-		sleep(2);
+
 		re_val = dev_light_module_init();
 		if (re_val != RE_SUCCESS)
 		{
@@ -363,6 +363,7 @@ re_error_enum dev_light_module_monitor(void)
 			}
 			pthread_mutex_unlock(&thread_mutex);
 		}
+		sleep(5);
 	}
 	return RE_SUCCESS;
 }

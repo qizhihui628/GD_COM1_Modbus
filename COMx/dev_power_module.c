@@ -251,7 +251,6 @@ re_error_enum dev_power_module_monitor(void)
 	while (1)
 	{
 		printf("power module thread\r\n");
-		//sleep(10);
 		get_current_time(&other, &other, &other, &day, &other, &other, &other);
 		printf("get_current_time->done\r\n");		//jj
 		if (pre_day != day)
@@ -275,8 +274,8 @@ re_error_enum dev_power_module_monitor(void)
 			}
 			pthread_mutex_unlock(&thread_mutex);
 		}
-
-		sleep(4);
+		sleep(20);
+		//sleep(60*10);
 		pre_day = day;
 	}
 
