@@ -11,6 +11,9 @@ extern pthread_mutex_t thread_mutex;
 #define FREEZE_ADDR "Address"
 #define FREEZE_STATUS "Status"
 #define FREEZE_TABLE "Table_Name"
+#define FREEZE_MODULE_TYPE "Module_Type"
+
+#define MODULE_NAME "XR75CX"
 
 #define FREEZE_DB "./DataBase/Freezing.db"
 
@@ -29,6 +32,19 @@ extern pthread_mutex_t thread_mutex;
 #define FREEZE_HIGH_ALARM "High_Alarm"
 #define FREEZE_LOW_ALARM "Low_Alarm"
 #define FREEZE_ALARM_DELAY "Alarm_Delay"
+#define FREEZE_REMIND_TEMP "Remind_Temp"
+#define FREEZE_REMIND_DELAY "Remind_Delay"
+
+
+#define ALARM_TEMP_SENSOR_ERR "temperature sensor error"
+#define ALARM_FAN_SENSOR_ERR "fan sensor error"
+#define ALARM_HIGH_ALARM_ERR "high temperature error"
+#define ALARM_LOW_ALARM_ERR "low temperature error"
+#define ALARM_EXTERN_ALARM_ERR "external error"
+#define ALARM_SEVERE_ERR "severe error"
+#define ALARM_EE_ALARM_ERR "EEPROM error"
+#define ALARM_REMIND_ALARM_ERR "remind alarm error"
+#define COMMUNICATION_ERROR "communication_error"
 
 #define MAX_FREEZE_MODULE_NUMBER 8
 
@@ -43,8 +59,8 @@ extern pthread_mutex_t thread_mutex;
 #define MODE_ON_PATTERN "normal"
 #define MODE_OFF_PATTERN "off"
 #define MODE_LIGHT_ON_PATTERN "light"
-#define MODE_DEMIST_PATTERN "demist"
-
+#define MODE_COMPRESOR_PATTERN "compresor"
+#define COMPRESOR_CLOSE_TEMP    50
 #define TIME_PATTERN_NUM 4
 #define FREEZE_STATUS_NUM 2
 
@@ -66,18 +82,37 @@ extern pthread_mutex_t thread_mutex;
 #define FREEZE_DEMIST_ADDR 0x0222
 #define FREEZE_SET_REG_NUM 1
 
-#define FREEZE_RD_STATUS_ADDR 0x0200
+#define FREEZE_RD_STATUS_ADDR 	0x0200
 #define FREEZE_RD_STATUS_BITNUM 0x0008
-#define FREEZE_FROST_ADDR 0x0002
-#define FREEZE_ON_OFF_ADDR 0x0001
+#define FREEZE_RD_ALARM_ADDR 	0x0208
+#define FREEZE_RD_ALARM_BITNUM 	0x0020
+
+#define FREEZE_FROST_ADDR  		0x0002
+#define FREEZE_ON_OFF_ADDR 		0x0001
+
+#define FREEZE_ERR_PB1_BIT 		0x01000000
+#define FREEZE_ERR_PB2_BIT 		0x02000000
+#define FREEZE_HIGH_VALUE_BIT 	0x10000000
+#define FREEZE_LOW_VALUE_BIT  	0x20000000
+#define FREEZE_EXTERNAL_BIT 	0x00010000
+#define FREEZE_SEVERE_BIT 		0x00020000
+#define FREEZE_EE_FAILURE_BIT 	0x00080000
+#define FREEZE_REMIND_BIT 		0x00000100
+#define FREEZE_COMMUNICATION_ERR_BIT  0x00000001
 
 #define FREEZE_MAX_DEFROST_TIME 255
+
 static u8 match_record_flag = 0;
 static u8 match_freeze_module_num = 0;
 static u8 current_module_id = 0;
-
+static u8 commnunication_error = 0;
+static char running_state_str[50];
 static freeze_module_struct freeze_module_array[MAX_FREEZE_MODULE_NUMBER];
 static char* cur_mode_array[MAX_FREEZE_MODULE_NUMBER]= {NULL};
+
+static freeze_temp_ctrl_struct temp_info = {0xffff};
+
+
 static void dev_freeze_select_spec_date(void);
 static void dev_freeze_select_date(void);
 static void dev_freeze_select_date(void);
@@ -120,17 +155,19 @@ static void dev_freeze_select_light_on_forever(void)
 		sql_select_where_equal(TIME_MODE1, MODE_LIGHT_ON_PATTERN);
 }
 
-static void dev_freeze_select_demist_forever(void)
+static void dev_freeze_select_compresor_forever(void)
 {
 
 		sql_select_where_equal(FREEZE_DAY_TYPE, "forever");
 		sql_add(" and ");
-		sql_select_where_equal(TIME_MODE1, MODE_DEMIST_PATTERN);
+		sql_select_where_equal(TIME_MODE1, MODE_COMPRESOR_PATTERN);
 }
 
 static void dev_freeze_select_modue(void)
 {
 	sql_select_where_equal(FREEZE_STATUS, "enable");
+	sql_add(" and ");
+	sql_select_where_equal(FREEZE_MODULE_TYPE, MODULE_NAME);
 }
 
 static void dev_freeze_select_module_st(void)
@@ -140,7 +177,8 @@ static void dev_freeze_select_module_st(void)
 	        freeze_module_array[current_module_id].module_addr);
 	sql_select_where_equal(FREEZE_ADDRESS, cur_addr);
 }
-static re_error_enum dev_freeze_status_update(int *value_ptr)
+
+static re_error_enum dev_freeze_mode_update(int *value_ptr)
 {
 	u8 val_num = 1;
 	u8 val_buf[5] = { 0 };
@@ -151,11 +189,53 @@ static re_error_enum dev_freeze_status_update(int *value_ptr)
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read line failed\n", re_val);
+		commnunication_error = 1;
 		return re_val;
 	}
 
 	*value_ptr = val_buf[0];
 
+	return RE_SUCCESS;
+}
+
+static re_error_enum dev_freeze_alarm_update(int *value_ptr)
+{
+	u8 val_num = FREEZE_RD_ALARM_BITNUM/8;
+	u8 val_buf[5] = { 0 };
+	re_error_enum re_val = RE_SUCCESS;
+
+	re_val = modbus_read_binary(FREEZE_RD_ALARM_ADDR, FREEZE_RD_ALARM_BITNUM, &val_num, val_buf);
+
+	if (re_val != RE_SUCCESS)
+	{
+		printf("error %d: serial read line:%d failed\n", re_val, FREEZE_RD_ALARM_ADDR);
+		commnunication_error = 1;
+		return re_val;
+	}
+	if (val_num != FREEZE_RD_ALARM_BITNUM/8)
+	{
+		printf("error %d: serial read line:%d failed\n", re_val, FREEZE_RD_ALARM_ADDR);
+		commnunication_error = 1;
+		return RE_OP_FAIL;
+	}
+	printf("cur temp:%d, remind temp %d\r\n", temp_info.cur_temp, temp_info.remind_temp);
+	if (temp_info.cur_temp > temp_info.remind_temp)
+	{
+		temp_info.remind_start_count = 1;
+		printf("start remind cound\r\n");
+	}
+
+	val_buf[2] = val_buf[3] = 0;
+	if (temp_info.remind_start_count == 2)
+	{
+		val_buf[2] = 1;
+	}
+	if (commnunication_error == 1)
+	{
+		val_buf[3] = 1;
+	}
+	*value_ptr = ((u32)val_buf[0] << 24) | ((u32)val_buf[1] << 16) | ((u32)val_buf[2] << 8) | ((u32)val_buf[3]) ;
+	printf("read alarm value is %d \r\n", *value_ptr);
 	return RE_SUCCESS;
 }
 
@@ -171,20 +251,22 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read line failed\n", re_val);
+		commnunication_error = 1;
 		return re_val;
 	}
 	if (val_num == 2)
 	{
 		printf("val1: %d, val2: %d\r\n", val_buf[0], val_buf[1]);
-		//tmp = ((short)(0xff << 8 | 0x23))/10;
+
 		tmp = ((short)(val_buf[0] << 8 | val_buf[1]))/10;
 		*value_ptr = tmp;
-		//*value_ptr = (((char)val_buf[0] << 8) | (char)val_buf[1])/10;
-		printf("val1: %d, val2: %d, tmp: %04x val: %d\r\n", val_buf[0], val_buf[1], tmp,*value_ptr);
+		temp_info.cur_temp = *value_ptr;
+		printf("val1: %d, val2: %d, tmp: %04x val: %d\r\n", val_buf[0], val_buf[1], tmp, *value_ptr);
 	}
 	else
 	{
 		printf("error %d: serial read line failed\n", re_val);
+		commnunication_error = 1;
 		return re_val;
 	}
 
@@ -193,12 +275,13 @@ static re_error_enum dev_freeze_temperature_update(int *value_ptr)
 
 static void dev_freeze_update_module_st(void *value_ptr)
 {
-	char cur_temp[5] = {0};
-	int mode, temp;
+	char cur_temp[5] =
+	{ 0 };
+	int mode, temp, state;
 
 	re_error_enum re_val;
 
-	re_val = dev_freeze_status_update(&mode);
+	re_val = dev_freeze_mode_update(&mode);
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read status failed\n", re_val);
@@ -212,25 +295,82 @@ static void dev_freeze_update_module_st(void *value_ptr)
 		return;
 	}
 
-	if((mode & FREEZE_ON_OFF_ADDR) == 0)
+	re_val = dev_freeze_alarm_update(&state);
+	if (re_val != RE_SUCCESS)
+	{
+		printf("error %d: serial read alarm failed\n", re_val);
+		return;
+	}
+	//running state update
+	strcpy(running_state_str, "");
+	if ((state & FREEZE_ERR_PB1_BIT) == FREEZE_ERR_PB1_BIT)
+	{
+		strcat(running_state_str, ALARM_TEMP_SENSOR_ERR);
+
+	}
+	if ((state & FREEZE_ERR_PB2_BIT) == FREEZE_ERR_PB2_BIT)
+	{
+		strcat(running_state_str, ALARM_FAN_SENSOR_ERR);
+	}
+	if ((state & FREEZE_HIGH_VALUE_BIT) == FREEZE_HIGH_VALUE_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, ALARM_HIGH_ALARM_ERR);
+	}
+	if ((state & FREEZE_LOW_VALUE_BIT) == FREEZE_LOW_VALUE_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, ALARM_LOW_ALARM_ERR);
+	}
+	if ((state & FREEZE_EXTERNAL_BIT) == FREEZE_EXTERNAL_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, ALARM_EXTERN_ALARM_ERR);
+	}
+	if ((state & FREEZE_SEVERE_BIT) == FREEZE_SEVERE_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, ALARM_SEVERE_ERR);
+	}
+	if ((state & FREEZE_EE_FAILURE_BIT) == FREEZE_EE_FAILURE_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, ALARM_EE_ALARM_ERR);
+	}
+	if ((state & FREEZE_REMIND_BIT) == FREEZE_REMIND_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, ALARM_REMIND_ALARM_ERR);
+	}
+	if ((state & FREEZE_COMMUNICATION_ERR_BIT) == FREEZE_COMMUNICATION_ERR_BIT)
+	{
+		strcat(running_state_str, "/");
+		strcat(running_state_str, COMMUNICATION_ERROR);
+	}
+	sql_select_where_equal(FREEZE_RUNNING_STATE, running_state_str);
+	sql_add(",");
+	//running mode update
+	if ((mode & FREEZE_ON_OFF_ADDR) == 0)
 	{
 		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_OFF_PATTERN);
 		match_record_flag = 1;
 		return;
 	}
-	if ((mode & FREEZE_FROST_ADDR)== FREEZE_FROST_ADDR)
+	if ((mode & FREEZE_FROST_ADDR) == FREEZE_FROST_ADDR)
 	{
 		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_DEFROST_PATTERN);
 		match_record_flag = 1;
 	}
-	else if ((mode & FREEZE_ON_OFF_ADDR)== FREEZE_ON_OFF_ADDR)
+	else if ((mode & FREEZE_ON_OFF_ADDR) == FREEZE_ON_OFF_ADDR)
 	{
 		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_ON_PATTERN);
 		match_record_flag = 1;
 	}
 	sql_add(",");
+
+	//running temperature update
 	sprintf((char*) cur_temp, "%d", temp);
-	printf("set val: %d\r\n",temp);
+	printf("set val: %d\r\n", temp);
 	sql_select_where_equal(FREEZE_RUNNING_TEMPERATURE, cur_temp);
 }
 
@@ -253,6 +393,7 @@ static int dev_freeze_config_module(void * para, int n_column,
 			FREEZE_SET_REG_NUM, atoi(column_value[i]));
 			if (re_val != RE_SUCCESS)
 			{
+				commnunication_error = 1;
 				printf("error %d: serial set comp delay failed\n", re_val);
 			}
 			match_record_flag++;
@@ -263,6 +404,7 @@ static int dev_freeze_config_module(void * para, int n_column,
 			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
 			if (re_val != RE_SUCCESS)
 			{
+				commnunication_error = 1;
 				printf("error %d: serial set temp diff failed\n", re_val);
 			}
 			match_record_flag++;
@@ -274,6 +416,7 @@ static int dev_freeze_config_module(void * para, int n_column,
 			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
 			if (re_val != RE_SUCCESS)
 			{
+				commnunication_error = 1;
 				printf("error %d: serial set sensor correct failed\n", re_val);
 			}
 			match_record_flag++;
@@ -284,6 +427,7 @@ static int dev_freeze_config_module(void * para, int n_column,
 			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
 			if (re_val != RE_SUCCESS)
 			{
+				commnunication_error = 1;
 				printf("error %d: serial set high alarm failed\n", re_val);
 			}
 			match_record_flag++;
@@ -295,6 +439,7 @@ static int dev_freeze_config_module(void * para, int n_column,
 			FREEZE_SET_REG_NUM, atoi(column_value[i]) * 10);
 			if (re_val != RE_SUCCESS)
 			{
+				commnunication_error = 1;
 				printf("error %d: serial set low alarm failed\n", re_val);
 			}
 			match_record_flag++;
@@ -305,9 +450,20 @@ static int dev_freeze_config_module(void * para, int n_column,
 			FREEZE_SET_REG_NUM, atoi(column_value[i]));
 			if (re_val != RE_SUCCESS)
 			{
+				commnunication_error = 1;
 				printf("error %d: serial set alarm delay failed\n", re_val);
 
 			}
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_REMIND_TEMP) == 0)
+		{
+			temp_info.remind_temp = atoi(column_value[i]);
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], FREEZE_REMIND_DELAY) == 0)
+		{
+			temp_info.remind_delay = atoi(column_value[i]);
 			match_record_flag++;
 		}
 
@@ -324,6 +480,7 @@ static int dev_freeze_force_light_on(void * para, int n_column,
 	re_val = modbus_write_reg(FREEZE_ON_LIGHT_ADDR, 1);
 	if (re_val != RE_SUCCESS)
 	{
+		commnunication_error = 1;
 		printf("error %d: serial write line failed\n", re_val);
 		return 0;
 	}
@@ -333,15 +490,17 @@ static int dev_freeze_force_light_on(void * para, int n_column,
 
 }
 
-static int dev_freeze_force_demist(void * para, int n_column,
+static int dev_freeze_force_compresor(void * para, int n_column,
         char ** column_value, char ** column_name)
 {
 	re_error_enum re_val;
 	match_record_flag++;
-	printf("demist on\r\n");
-	re_val = modbus_write_reg(FREEZE_DEMIST_ADDR, 1);
+	printf("compresor on\r\n");
+	re_val = modbus_write_mul_reg(FREEZE_SET_REG_ADDR, FREEZE_SET_REG_NUM,
+			        (COMPRESOR_CLOSE_TEMP * 10));
 	if (re_val != RE_SUCCESS)
 	{
+		commnunication_error = 1;
 		printf("error %d: serial write line failed\n", re_val);
 		return 0;
 	}
@@ -376,6 +535,7 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 		re_val |= modbus_write_reg(FREEZE_FROST_REG_ADDR, 1);
 		if (re_val != RE_SUCCESS)
 		{
+			commnunication_error = 1;
 			printf("error %d: serial write line failed\n", re_val);
 			return re_val;
 		}
@@ -389,6 +549,7 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 		        (atoi(set_value) * 10));
 		if (re_val != RE_SUCCESS)
 		{
+			commnunication_error = 1;
 			printf("error %d: serial write line failed\n", re_val);
 			return re_val;
 		}
@@ -399,6 +560,7 @@ static re_error_enum dev_freeze_ctrl_mode_set(char* set_mode, char* set_value, i
 		re_val = modbus_write_reg(FREEZE_ON_OFF_REG_ADDR, 0);
 		if (re_val != RE_SUCCESS)
 		{
+			commnunication_error = 1;
 			printf("error %d: serial write line failed\n", re_val);
 			return re_val;
 		}
@@ -528,7 +690,7 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	current_module_id = freeze_mod_id;
 	modbus_dev_switch(freeze_module_array[freeze_mod_id].module_addr);
 	match_record_flag = 0;
-
+	commnunication_error = 0;
 	/*control the freeze */
 	result = sql_select(FREEZE_DB, freeze_module_array[freeze_mod_id].module_table,
 	        dev_freeze_select_spec_date, enter_record_set_value, NULL);
@@ -588,13 +750,14 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 		result = modbus_write_reg(FREEZE_ON_LIGHT_ADDR, 0);
 		if (result != 0)
 		{
+			commnunication_error = 1;
 			printf("error: force freeze light off failed \r\n");
 		}
 	}
 
 	result = sql_select(FREEZE_DB,
 	        freeze_module_array[freeze_mod_id].module_table,
-	        dev_freeze_select_demist_forever, dev_freeze_force_demist,
+	        dev_freeze_select_compresor_forever, dev_freeze_force_compresor,
 	        NULL);
 	if (result != 0)
 	{
@@ -608,11 +771,12 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	else
 	{
 		match_record_flag = 0;
-		printf("demist off\r\n");
+		printf("compresor off\r\n");
 		result = modbus_write_reg(FREEZE_DEMIST_ADDR, 0);
 		if (result != 0)
 		{
-			printf("error: force freeze demist off failed \r\n");
+			commnunication_error = 1;
+			printf("error: force freeze compresor off failed \r\n");
 		}
 	}
 	/*config value in config table*/
@@ -662,11 +826,23 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	return RE_SUCCESS;
 
 }
-
+void dev_freeze_remind_ctrl(int count)
+{
+	if (temp_info.remind_start_count == 1)
+	{
+		count++;
+		if ((count * 5) == (temp_info.remind_delay * 60))
+		{
+			count = 0;
+			temp_info.remind_start_count = 2;
+		}
+	}
+}
 re_error_enum dev_freeze_module_monitor(void)
 {
 	re_error_enum re_val = RE_SUCCESS;
 	int i;
+	int count = 0;
 	while (1)
 	{
 		printf("freeze module thread\r\n");
@@ -687,6 +863,7 @@ re_error_enum dev_freeze_module_monitor(void)
 			pthread_mutex_unlock(&thread_mutex);
 		}
 		sleep(5);
+		dev_freeze_remind_ctrl(count);
 	}
 
 	return RE_SUCCESS;
