@@ -18,19 +18,24 @@ extern pthread_mutex_t thread_mutex;
 #define LIGHT_STATUS_TABLE "Light_Status"
 #define LIGHT_ADDRESS "Light_Address"
 #define LIGHT_RUNNING_STATE "Running_State"
+#define LIGHT_RUNNING_MODE "Running_Mode"
 
 #define LIGHT_NUMBER 4
 #define MAX_LIGHT_MODULE_NUMBER 12
-#define TIME_KEY_PATTERN "^[ONF]+_Time[0-9]+$"
 
+#define TIME_START_PATTERN       "^Start_Time([0-9]+)$"
+#define TIME_END_PATTERN         "^End_Time([0-9]+)$"
+#define TIME_MODE_PATTERN        "^Mode([0-9]+)$"
+#define TIME_LUX_PATTERN 		 "^Lux([0-9]+)$"
+
+#define TIME_PATTERN_NUM 4
 static u8 match_record_flag = 0;
 static u8 match_light_module_num = 0;
 static u8 current_module_id = 0;
-
+static u8 commnunication_error = 0;
 static light_module_struct light_module_array[MAX_LIGHT_MODULE_NUMBER];
 
 static void dev_light_select_spec_date(void);
-static void dev_light_select_date(void);
 static void dev_light_select_date(void);
 static void dev_light_select_modue(void);
 
@@ -77,35 +82,41 @@ static void dev_light_select_module_st(void)
 
 static void dev_light_update_module_st(void *value_ptr)
 {
-	if (*(int *) value_ptr == 0)
-	{
-		sql_select_where_equal(LIGHT_RUNNING_STATE, "OFF");
-	}
-	else
-	{
-		sql_select_where_equal(LIGHT_RUNNING_STATE, "ON");
-	}
-	match_record_flag = 1;
-
-}
-
-static re_error_enum dev_light_status_update(u8 *value_ptr)
-{
 	u8 val_num;
 	u8 val_buf[5] = { 0 };
 	re_error_enum re_val;
-
 	re_val = modbus_read_line(0, LIGHT_NUMBER, &val_num, val_buf);
 
 	if (re_val != RE_SUCCESS)
 	{
+		commnunication_error = 1;
 		printf("error %d: serial read line failed\n", re_val);
-		return re_val;
 	}
+	else
+	{
+		if (val_buf[0] == 0)
+		{
+			sql_select_where_equal(LIGHT_RUNNING_MODE, "OFF");
+		}
+		else
+		{
+			sql_select_where_equal(LIGHT_RUNNING_MODE, "ON");
+		}
+	}
+	printf("comm error:%d\r\n",commnunication_error);
+	if (commnunication_error == 1)
+	{
+		sql_add(",");
+		sql_select_where_equal(LIGHT_RUNNING_STATE, COMMUNICATION_ERROR);
+	}
+	else
+	{
+		sql_add(",");
+		sql_select_where_equal(LIGHT_RUNNING_STATE, NO_EXPECTION);
 
-	*value_ptr = val_buf[0];
+	}
+	match_record_flag = 1;
 
-	return RE_SUCCESS;
 }
 
 static re_error_enum dev_light_ctrl_val_set(u8 set_val)
@@ -115,6 +126,7 @@ static re_error_enum dev_light_ctrl_val_set(u8 set_val)
 	re_val = modbus_write_mul_line(0, LIGHT_NUMBER, set_val);
 	if (re_val != RE_SUCCESS)
 	{
+		commnunication_error = 1;
 		printf("error %d: serial write line failed\n", re_val);
 		return re_val;
 	}
@@ -151,59 +163,49 @@ static int enter_record_set_value(void * para, int n_column, char ** column_valu
         char ** column_name)
 {
 	int i;
-	int switch_no = 0;
+	int column_no = 0;
 	int hour, minute, second, other;
 	char cur_time[12];
 	get_current_time(&other, &other, &other, &other, &hour, &minute, &second);
 	sprintf((char*) cur_time, "%02d:%02d:%02d.000", hour, minute, second);
-	for (i = 0; i < n_column; i++)
+
+	for (i = 0; i < (n_column / TIME_PATTERN_NUM); i++)
 	{
-		if (match_time_key(column_name[i], TIME_KEY_PATTERN, NULL) == 0)
+		column_no = i * 4;
+		printf(" %d column is %s, value is %s\r\n", column_no + 3,
+		        column_name[column_no + 3], column_value[column_no + 3]);
+		if ((match_time_key(column_name[column_no + 3], TIME_END_PATTERN, NULL)
+		        == 0) && (strcmp(cur_time, column_value[column_no + 3]) <= 0)
+		        && (match_time_key(column_name[column_no + 2],
+		                TIME_START_PATTERN, NULL) == 0)
+		        && (strcmp(cur_time, column_value[column_no + 2]) >= 0)
+		        && (match_time_key(column_name[column_no + 4],
+		                TIME_MODE_PATTERN, NULL) == 0)
+		        && (match_time_key(column_name[column_no + 5], TIME_LUX_PATTERN,
+		                NULL) == 0))
 		{
-			printf("cur time is %s, config time is %s \r\n", cur_time, column_value[i]);
-			if (column_value[i] == NULL)
+			if (strcmp(column_value[column_no + 4], "OFF") == 0)
 			{
-				match_record_flag = 1;
-				return 0;
+				dev_light_ctrl_val_set(0);
+				printf("set off\r\n");
 			}
-			if (strcmp(cur_time, column_value[i]) < 0)
+			else if (strcmp(column_value[column_no + 4], "ON") == 0)
 			{
-				printf(" %s is %s,switch %d\r\n", column_name[i], column_value[i], switch_no);
-				if ((switch_no % 2) == 0)
-				{
-					dev_light_ctrl_val_set(0);
-					printf("set off\r\n");
-				}
-				else
-				{
-					dev_light_ctrl_val_set(0x0f);
-					printf("set on\r\n");
-				}
-				match_record_flag = 1;
-				return 0;
+				dev_light_ctrl_val_set(0x0f);
+				printf("set on\r\n");
 			}
-			switch_no++;
-		}
-
-	}
-	return 0;
-}
-
-static int enter_record_get_value(void * para, int n_column, char ** column_value,
-        char ** column_name)
-{
-	int i;
-	for (i = 0; i < n_column; i++)
-	{
-		if (strcmp(column_name[i], LIGHT_RUNNING_STATE) == 0)
-		{
-
-			dev_light_status_update((int *) para);
+			else
+			{
+				printf("error: invalid key \r\n");
+				return 1;
+			}
 			match_record_flag = 1;
+			return 0;
 		}
 	}
 	return 0;
 }
+
 static re_error_enum dev_light_module_init(void)
 {
 	int result;
@@ -251,8 +253,19 @@ static re_error_enum dev_light_module_switch(u8 light_mod_id)
 		        light_mod_id);
 		return RE_OP_FAIL;
 	}
+	commnunication_error = 0;
 	current_module_id = light_mod_id;
 	modbus_dev_switch(light_module_array[light_mod_id].module_addr);
+	/*force the light*/
+	result = sql_select(LIGHT_DB, light_module_array[light_mod_id].module_table,
+		        dev_light_select_spec_date, enter_record_set_value, NULL);
+
+
+
+
+	/*suntime control the light*/
+	result = sql_select(LIGHT_DB, light_module_array[light_mod_id].module_table,
+		        dev_light_select_spec_date, enter_record_set_value, NULL);
 
 	/*control the light according to the config in responding table*/
 	result = sql_select(LIGHT_DB, light_module_array[light_mod_id].module_table,
@@ -292,28 +305,6 @@ static re_error_enum dev_light_module_switch(u8 light_mod_id)
 		}
 	}
 
-	/*get the value to status table*/
-	result = sql_select(LIGHT_DB, LIGHT_STATUS_TABLE,
-	        dev_light_select_module_st, enter_record_get_value, &value);
-	if (result != 0)
-	{
-		printf("error: db: %s,light: %s disable or do not exist\r\n", LIGHT_DB,
-		LIGHT_STATUS_TABLE);
-		return RE_OP_FAIL;
-	}
-	if (match_record_flag)
-	{
-		match_record_flag = 0;
-
-	}
-	else
-	{
-		match_record_flag = 0;
-		printf("error: db: %s,table: %s configure error\r\n", LIGHT_DB,
-		LIGHT_STATUS_TABLE);
-		return RE_OP_FAIL;
-	}
-
 	/*Update value in status table*/
 	result = sql_update(LIGHT_DB, LIGHT_STATUS_TABLE,
 	        dev_light_select_module_st, dev_light_update_module_st, &value);
@@ -346,7 +337,8 @@ re_error_enum dev_light_module_monitor(void)
 	while(1)
 	{
 		printf("light module thread\r\n");
-
+		//getSunTime(121, 28, 31, 14);
+		getSunTime(91, 8, 29, 39);
 		re_val = dev_light_module_init();
 		if (re_val != RE_SUCCESS)
 		{

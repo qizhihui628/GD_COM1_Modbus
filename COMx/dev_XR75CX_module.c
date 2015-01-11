@@ -44,7 +44,7 @@ extern pthread_mutex_t thread_mutex;
 #define ALARM_SEVERE_ERR "severe error"
 #define ALARM_EE_ALARM_ERR "EEPROM error"
 #define ALARM_REMIND_ALARM_ERR "remind alarm error"
-#define COMMUNICATION_ERROR "communication_error"
+
 
 #define MAX_FREEZE_MODULE_NUMBER 8
 
@@ -219,21 +219,31 @@ static re_error_enum dev_freeze_alarm_update(int *value_ptr)
 		return RE_OP_FAIL;
 	}
 	printf("cur temp:%d, remind temp %d\r\n", temp_info.cur_temp, temp_info.remind_temp);
-	if (temp_info.cur_temp > temp_info.remind_temp)
-	{
-		temp_info.remind_start_count = 1;
-		printf("start remind cound\r\n");
-	}
-
-	val_buf[2] = val_buf[3] = 0;
-	if (temp_info.remind_start_count == 2)
+	val_buf[3] = 0;
+	if (temp_info.remind_stop_count == 1)
 	{
 		val_buf[2] = 1;
 	}
+	else
+	{
+		val_buf[2] = 0;
+	}
+
 	if (commnunication_error == 1)
 	{
 		val_buf[3] = 1;
 	}
+	if (temp_info.cur_temp > temp_info.remind_temp && temp_info.remind_start_count == 0)
+	{
+		temp_info.remind_start_count = 1;
+		printf("start remind count\r\n");
+	}
+	if (temp_info.cur_temp <= temp_info.remind_temp && temp_info.remind_start_count == 0)
+	{
+		temp_info.remind_start_count = 2;
+		printf("start normal count\r\n");
+	}
+
 	*value_ptr = ((u32)val_buf[0] << 24) | ((u32)val_buf[1] << 16) | ((u32)val_buf[2] << 8) | ((u32)val_buf[3]) ;
 	printf("read alarm value is %d \r\n", *value_ptr);
 	return RE_SUCCESS;
@@ -495,7 +505,7 @@ static int dev_freeze_force_compresor(void * para, int n_column,
 {
 	re_error_enum re_val;
 	match_record_flag++;
-	printf("compresor on\r\n");
+	printf("compresor force close\r\n");
 	re_val = modbus_write_mul_reg(FREEZE_SET_REG_ADDR, FREEZE_SET_REG_NUM,
 			        (COMPRESOR_CLOSE_TEMP * 10));
 	if (re_val != RE_SUCCESS)
@@ -680,8 +690,8 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 		        freeze_mod_id);
 		return RE_OP_FAIL;
 	}
-	if (freeze_module_array[freeze_mod_id].module_addr
-	        == 0 || strcmp(freeze_module_array[freeze_mod_id].module_table, "") == 0)
+	if (freeze_module_array[freeze_mod_id].module_addr == 0
+	        || strcmp(freeze_module_array[freeze_mod_id].module_table, "") == 0)
 	{
 		printf("error: freeze module: %d disable or do not exist\r\n",
 		        freeze_mod_id);
@@ -691,44 +701,8 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	modbus_dev_switch(freeze_module_array[freeze_mod_id].module_addr);
 	match_record_flag = 0;
 	commnunication_error = 0;
-	/*control the freeze */
-	result = sql_select(FREEZE_DB, freeze_module_array[freeze_mod_id].module_table,
-	        dev_freeze_select_spec_date, enter_record_set_value, NULL);
-	if (result != 0)
-	{
-		printf("error: db: %s,freeze: %s disable or do not exist\r\n", FREEZE_DB,
-		        freeze_module_array[freeze_mod_id].module_table);
-		return RE_OP_FAIL;
-	}
-	if (match_record_flag)
-	{
-		match_record_flag = 0;
 
-	}
-	else
-	{
-		result = sql_select(FREEZE_DB,
-		        freeze_module_array[freeze_mod_id].module_table,
-		        dev_freeze_select_date, enter_record_set_value, NULL);
-		if (result != 0)
-		{
-			printf("error: db: %s,freeze: %s disable or do not exist\r\n",
-			FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
-			return RE_OP_FAIL;
-		}
-		if (match_record_flag)
-		{
-			match_record_flag = 0;
-		}
-		else
-		{
-			match_record_flag = 0;
-			printf("error: db: %s,table: %s configure error\r\n", FREEZE_DB,
-			        freeze_module_array[freeze_mod_id].module_table);
-			return RE_OP_FAIL;
-		}
-	}
-	/*force control the freeze according to the config in responding table*/
+	/*force control the freeze */
 	result = sql_select(FREEZE_DB,
 	        freeze_module_array[freeze_mod_id].module_table,
 	        dev_freeze_select_light_on_forever, dev_freeze_force_light_on,
@@ -736,12 +710,13 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	if (result != 0)
 	{
 		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
-		        FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
+		FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
 		return RE_OP_FAIL;
 	}
 	if (match_record_flag)
 	{
 		match_record_flag = 0;
+
 	}
 	else
 	{
@@ -762,7 +737,7 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	if (result != 0)
 	{
 		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
-		        FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
+		FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
 	}
 	if (match_record_flag)
 	{
@@ -771,44 +746,81 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	else
 	{
 		match_record_flag = 0;
-		printf("compresor off\r\n");
-		result = modbus_write_reg(FREEZE_DEMIST_ADDR, 0);
-		if (result != 0)
-		{
-			commnunication_error = 1;
-			printf("error: force freeze compresor off failed \r\n");
-		}
-	}
-	/*config value in config table*/
-		result = sql_select(FREEZE_DB, FREEZE_CONFIG_TABLE,
-		        dev_freeze_select_module_st, dev_freeze_config_module, NULL);
-		if (result != 0)
-		{
-			match_record_flag = 0;
-			printf("error: db: %s,freeze: %s disable or do not exist\r\n", FREEZE_DB,
-			FREEZE_STATUS_TABLE);
-			return RE_OP_FAIL;
-		}
-		if (match_record_flag)
-		{
-			match_record_flag = 0;
+		printf("compresor recovery\r\n");
+		/*control the freeze according time*/
+			result = sql_select(FREEZE_DB,
+			        freeze_module_array[freeze_mod_id].module_table,
+			        dev_freeze_select_spec_date, enter_record_set_value, NULL);
+			if (result != 0)
+			{
+				printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+				        FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
+				return RE_OP_FAIL;
+			}
+			if (match_record_flag)
+			{
+				match_record_flag = 0;
 
-		}
-		else
-		{
-			match_record_flag = 0;
-			printf("error: db: %s,table: %s set error\r\n", FREEZE_DB,
-			FREEZE_CONFIG_TABLE);
-			return RE_OP_FAIL;
-		}
+			}
+			else
+			{
+				result = sql_select(FREEZE_DB,
+				        freeze_module_array[freeze_mod_id].module_table,
+				        dev_freeze_select_date, enter_record_set_value, NULL);
+				if (result != 0)
+				{
+					printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+					FREEZE_DB, freeze_module_array[freeze_mod_id].module_table);
+					return RE_OP_FAIL;
+				}
+				if (match_record_flag)
+				{
+					match_record_flag = 0;
+				}
+				else
+				{
+					match_record_flag = 0;
+					printf("error: db: %s,table: %s configure error\r\n", FREEZE_DB,
+					        freeze_module_array[freeze_mod_id].module_table);
+					return RE_OP_FAIL;
+				}
+			}
+
+	}
+
+	/*config value in config table*/
+	result = sql_select(FREEZE_DB, FREEZE_CONFIG_TABLE,
+	        dev_freeze_select_module_st, dev_freeze_config_module, NULL);
+	if (result != 0)
+	{
+		match_record_flag = 0;
+		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+		        FREEZE_DB,
+		        FREEZE_STATUS_TABLE);
+		return RE_OP_FAIL;
+	}
+	if (match_record_flag)
+	{
+		match_record_flag = 0;
+
+	}
+	else
+	{
+		match_record_flag = 0;
+		printf("error: db: %s,table: %s set error\r\n", FREEZE_DB,
+		FREEZE_CONFIG_TABLE);
+		return RE_OP_FAIL;
+	}
+
 	/*Update value in status table*/
 	result = sql_update(FREEZE_DB, FREEZE_STATUS_TABLE,
 	        dev_freeze_select_module_st, dev_freeze_update_module_st, NULL);
 	if (result != 0)
 	{
 		match_record_flag = 0;
-		printf("error: db: %s,freeze: %s disable or do not exist\r\n", FREEZE_DB,
-		FREEZE_STATUS_TABLE);
+		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+		        FREEZE_DB,
+		        FREEZE_STATUS_TABLE);
 		return RE_OP_FAIL;
 	}
 	if (match_record_flag)
@@ -823,26 +835,42 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 		FREEZE_STATUS_TABLE);
 		return RE_OP_FAIL;
 	}
+
 	return RE_SUCCESS;
 
 }
-void dev_freeze_remind_ctrl(int count)
+void dev_freeze_remind_ctrl(void)
 {
-	if (temp_info.remind_start_count == 1)
+	static int count = 0;
+	if (temp_info.remind_start_count != 0)
 	{
 		count++;
-		if ((count * 5) == (temp_info.remind_delay * 60))
+		printf("remind count is %d,delay is %d",count, temp_info.remind_delay);
+		if ((count * 5) == (temp_info.remind_delay))
 		{
 			count = 0;
-			temp_info.remind_start_count = 2;
+			if (temp_info.remind_start_count == 1)
+			{
+				temp_info.remind_stop_count = 1;
+			}
+			else if (temp_info.remind_start_count == 2)
+			{
+				temp_info.remind_stop_count = 2;
+			}
+			printf("remind count stop ,count :%d\r\n",temp_info.remind_stop_count);
 		}
+		temp_info.remind_start_count = 0;
+	}
+	else
+	{
+		count = 0;
+		printf("reset count\r\n");
 	}
 }
 re_error_enum dev_freeze_module_monitor(void)
 {
 	re_error_enum re_val = RE_SUCCESS;
 	int i;
-	int count = 0;
 	while (1)
 	{
 		printf("freeze module thread\r\n");
@@ -863,7 +891,7 @@ re_error_enum dev_freeze_module_monitor(void)
 			pthread_mutex_unlock(&thread_mutex);
 		}
 		sleep(5);
-		dev_freeze_remind_ctrl(count);
+		dev_freeze_remind_ctrl();
 	}
 
 	return RE_SUCCESS;
