@@ -8,9 +8,10 @@
 #include <stdlib.h>
 #include <math.h>
 
-typedef int (*module_monitor_func)(void);
 #define MAX_BUF_SIZE 20
+
 static char string_buf[MAX_BUF_SIZE] = {0};
+suntime_struct suntime = {0, 0, "", ""};
 
 void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
         int* weekday_ptr, int *hour_ptr, int *minitue_ptr, int *second_ptr)
@@ -198,8 +199,7 @@ double sunRiseTime(double date, double lo, double la, double tz)
 	return date - degree(H - H0) / M_PI / 2 + tz; // 日出时间，函数返回值
 }
 
-void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees,
-        double wd_seconds)
+void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees, double wd_seconds)
 {
 	char timestr[20];
 	int year;
@@ -208,6 +208,7 @@ void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees,
 	int hour;
 	int min;
 	int sec;
+	int week;
 	int day_int;
 	int tz;
 	int i;
@@ -237,7 +238,7 @@ void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees,
 	printf("wd=%f\r\n", wd);
 
 	//step 2
-	get_current_time(&year, &month, &day_int, &day_int, &hour, &min, &sec);
+	get_current_time(&year, &month, &day_int, &week, &hour, &min, &sec);
 	day = day_int;
 	richu = timeToDouble(year, month, day) - 2451544.5;
 	printf("mjd:%f\r\n", richu);
@@ -249,11 +250,11 @@ void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees,
 
 	doubleToStr(richu, timestr);
 	printf("日出时间 %s\r\n", timestr);
-
+	strcpy(suntime.timestr_sunrise , timestr);
 	doubleToStr(midDayTime + midDayTime - richu, timestr);
 	printf("日落时间 %s\r\n", timestr);
 	printf("richu:%f,midDayTime:%f\r\n", richu, midDayTime);
-
+	strcpy(suntime.timestr_sunset , timestr);
 	doubleToStr(midDayTime, timestr);
 	printf("中天时间 %s\r\n", timestr);
 

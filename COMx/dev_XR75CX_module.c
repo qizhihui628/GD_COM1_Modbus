@@ -150,7 +150,7 @@ static void dev_freeze_select_date(void)
 static void dev_freeze_select_light_on_forever(void)
 {
 
-		sql_select_where_equal(FREEZE_DAY_TYPE, "forever");
+		sql_select_where_equal(FREEZE_DAY_TYPE, FORCE_CONTROL);
 		sql_add(" and ");
 		sql_select_where_equal(TIME_MODE1, MODE_LIGHT_ON_PATTERN);
 }
@@ -158,7 +158,7 @@ static void dev_freeze_select_light_on_forever(void)
 static void dev_freeze_select_compresor_forever(void)
 {
 
-		sql_select_where_equal(FREEZE_DAY_TYPE, "forever");
+		sql_select_where_equal(FREEZE_DAY_TYPE, FORCE_CONTROL);
 		sql_add(" and ");
 		sql_select_where_equal(TIME_MODE1, MODE_COMPRESOR_PATTERN);
 }
@@ -229,10 +229,6 @@ static re_error_enum dev_freeze_alarm_update(int *value_ptr)
 		val_buf[2] = 0;
 	}
 
-	if (commnunication_error == 1)
-	{
-		val_buf[3] = 1;
-	}
 	if (temp_info.cur_temp > temp_info.remind_temp && temp_info.remind_start_count == 0)
 	{
 		temp_info.remind_start_count = 1;
@@ -295,93 +291,108 @@ static void dev_freeze_update_module_st(void *value_ptr)
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read status failed\n", re_val);
-		return;
+		sql_select_where_equal(FREEZE_RUNNING_MODE, NONE);
+	}
+	else
+	{
+		if ((mode & FREEZE_ON_OFF_ADDR) == 0)
+		{
+			sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_OFF_PATTERN);
+		}
+		else
+		{
+			if ((mode & FREEZE_FROST_ADDR) == FREEZE_FROST_ADDR)
+			{
+				sql_select_where_equal(FREEZE_RUNNING_MODE,
+				        MODE_DEFROST_PATTERN);
+			}
+			else if ((mode & FREEZE_ON_OFF_ADDR) == FREEZE_ON_OFF_ADDR)
+			{
+				sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_ON_PATTERN);
+			}
+		}
+
 	}
 
+	//running temperature update
+	sql_add(",");
 	re_val = dev_freeze_temperature_update(&temp);
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read temperature failed\n", re_val);
-		return;
+		sql_select_where_equal(FREEZE_RUNNING_TEMPERATURE, NONE);
+	}
+	else
+	{
+		sprintf((char*) cur_temp, "%d", temp);
+		printf("set val: %d\r\n", temp);
+		sql_select_where_equal(FREEZE_RUNNING_TEMPERATURE, cur_temp);
 	}
 
+	//running state update
+	sql_add(",");
+	strcpy(running_state_str, "");
 	re_val = dev_freeze_alarm_update(&state);
+
+	if (commnunication_error == 1)
+	{
+		state |= FREEZE_COMMUNICATION_ERR_BIT;
+	}
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read alarm failed\n", re_val);
-		return;
-	}
-	//running state update
-	strcpy(running_state_str, "");
-	if ((state & FREEZE_ERR_PB1_BIT) == FREEZE_ERR_PB1_BIT)
-	{
-		strcat(running_state_str, ALARM_TEMP_SENSOR_ERR);
-
-	}
-	if ((state & FREEZE_ERR_PB2_BIT) == FREEZE_ERR_PB2_BIT)
-	{
-		strcat(running_state_str, ALARM_FAN_SENSOR_ERR);
-	}
-	if ((state & FREEZE_HIGH_VALUE_BIT) == FREEZE_HIGH_VALUE_BIT)
-	{
-		strcat(running_state_str, "/");
-		strcat(running_state_str, ALARM_HIGH_ALARM_ERR);
-	}
-	if ((state & FREEZE_LOW_VALUE_BIT) == FREEZE_LOW_VALUE_BIT)
-	{
-		strcat(running_state_str, "/");
-		strcat(running_state_str, ALARM_LOW_ALARM_ERR);
-	}
-	if ((state & FREEZE_EXTERNAL_BIT) == FREEZE_EXTERNAL_BIT)
-	{
-		strcat(running_state_str, "/");
-		strcat(running_state_str, ALARM_EXTERN_ALARM_ERR);
-	}
-	if ((state & FREEZE_SEVERE_BIT) == FREEZE_SEVERE_BIT)
-	{
-		strcat(running_state_str, "/");
-		strcat(running_state_str, ALARM_SEVERE_ERR);
-	}
-	if ((state & FREEZE_EE_FAILURE_BIT) == FREEZE_EE_FAILURE_BIT)
-	{
-		strcat(running_state_str, "/");
-		strcat(running_state_str, ALARM_EE_ALARM_ERR);
-	}
-	if ((state & FREEZE_REMIND_BIT) == FREEZE_REMIND_BIT)
-	{
-		strcat(running_state_str, "/");
-		strcat(running_state_str, ALARM_REMIND_ALARM_ERR);
-	}
-	if ((state & FREEZE_COMMUNICATION_ERR_BIT) == FREEZE_COMMUNICATION_ERR_BIT)
-	{
-		strcat(running_state_str, "/");
 		strcat(running_state_str, COMMUNICATION_ERROR);
 	}
-	sql_select_where_equal(FREEZE_RUNNING_STATE, running_state_str);
-	sql_add(",");
-	//running mode update
-	if ((mode & FREEZE_ON_OFF_ADDR) == 0)
+	else
 	{
-		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_OFF_PATTERN);
-		match_record_flag = 1;
-		return;
-	}
-	if ((mode & FREEZE_FROST_ADDR) == FREEZE_FROST_ADDR)
-	{
-		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_DEFROST_PATTERN);
-		match_record_flag = 1;
-	}
-	else if ((mode & FREEZE_ON_OFF_ADDR) == FREEZE_ON_OFF_ADDR)
-	{
-		sql_select_where_equal(FREEZE_RUNNING_MODE, MODE_ON_PATTERN);
-		match_record_flag = 1;
-	}
-	sql_add(",");
+		if ((state & FREEZE_ERR_PB1_BIT) == FREEZE_ERR_PB1_BIT)
+		{
+			strcat(running_state_str, ALARM_TEMP_SENSOR_ERR);
 
-	//running temperature update
-	sprintf((char*) cur_temp, "%d", temp);
-	printf("set val: %d\r\n", temp);
-	sql_select_where_equal(FREEZE_RUNNING_TEMPERATURE, cur_temp);
+		}
+		if ((state & FREEZE_ERR_PB2_BIT) == FREEZE_ERR_PB2_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_FAN_SENSOR_ERR);
+		}
+		if ((state & FREEZE_HIGH_VALUE_BIT) == FREEZE_HIGH_VALUE_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_HIGH_ALARM_ERR);
+		}
+		if ((state & FREEZE_LOW_VALUE_BIT) == FREEZE_LOW_VALUE_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_LOW_ALARM_ERR);
+		}
+		if ((state & FREEZE_EXTERNAL_BIT) == FREEZE_EXTERNAL_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_EXTERN_ALARM_ERR);
+		}
+		if ((state & FREEZE_SEVERE_BIT) == FREEZE_SEVERE_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_SEVERE_ERR);
+		}
+		if ((state & FREEZE_EE_FAILURE_BIT) == FREEZE_EE_FAILURE_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_EE_ALARM_ERR);
+		}
+		if ((state & FREEZE_REMIND_BIT) == FREEZE_REMIND_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, ALARM_REMIND_ALARM_ERR);
+		}
+		if ((state & FREEZE_COMMUNICATION_ERR_BIT)
+		        == FREEZE_COMMUNICATION_ERR_BIT)
+		{
+			strcat(running_state_str, "/");
+			strcat(running_state_str, COMMUNICATION_ERROR);
+		}
+	}
+	sql_select_where_equal(FREEZE_RUNNING_STATE, running_state_str);
 }
 
 static int dev_freeze_config_module(void * para, int n_column,
@@ -817,28 +828,15 @@ static re_error_enum dev_freeze_module_switch(u8 freeze_mod_id)
 	        dev_freeze_select_module_st, dev_freeze_update_module_st, NULL);
 	if (result != 0)
 	{
-		match_record_flag = 0;
 		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
 		        FREEZE_DB,
 		        FREEZE_STATUS_TABLE);
 		return RE_OP_FAIL;
 	}
-	if (match_record_flag)
-	{
-		match_record_flag = 0;
-
-	}
-	else
-	{
-		match_record_flag = 0;
-		printf("error: db: %s,table: %s set error\r\n", FREEZE_DB,
-		FREEZE_STATUS_TABLE);
-		return RE_OP_FAIL;
-	}
 
 	return RE_SUCCESS;
-
 }
+
 void dev_freeze_remind_ctrl(void)
 {
 	static int count = 0;

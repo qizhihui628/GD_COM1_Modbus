@@ -3,14 +3,18 @@
 #include "system.h"
 #include "sql_op.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include "pthread.h"
 
 extern pthread_mutex_t thread_mutex;
+extern suntime_struct suntime;
 #define MODBUS_CONFIG_DB "./DataBase/ModBus_Config.db"
 #define LIGHT_REGISTER_TABLE "Light_Register"
 #define LIGHT_ADDR "Address"
 #define LIGHT_STATUS "Status"
 #define LIGHT_TABLE "Table_Name"
+#define LIGHT_MODULE_TYPE "Module_Type"
+#define MODULE_NAME "RELAY-F4"
 
 #define LIGHT_DB "./DataBase/Light.db"
 
@@ -20,13 +24,17 @@ extern pthread_mutex_t thread_mutex;
 #define LIGHT_RUNNING_STATE "Running_State"
 #define LIGHT_RUNNING_MODE "Running_Mode"
 
+#define LIGHT_CONFIG_TABLE "Light_Config"
+#define LIGHT_SUNSIZE_DELAY "Sunrise_Delay"
+#define LIGHT_SUNSET_DELAY "Sunset_Delay"
+
 #define LIGHT_NUMBER 4
 #define MAX_LIGHT_MODULE_NUMBER 12
 
 #define TIME_START_PATTERN       "^Start_Time([0-9]+)$"
 #define TIME_END_PATTERN         "^End_Time([0-9]+)$"
 #define TIME_MODE_PATTERN        "^Mode([0-9]+)$"
-#define TIME_LUX_PATTERN 		 "^Lux([0-9]+)$"
+#define TIME_LUX_PATTERN 		 "^Brightness([0-9]+)$"
 
 #define TIME_PATTERN_NUM 4
 static u8 match_record_flag = 0;
@@ -38,6 +46,17 @@ static light_module_struct light_module_array[MAX_LIGHT_MODULE_NUMBER];
 static void dev_light_select_spec_date(void);
 static void dev_light_select_date(void);
 static void dev_light_select_modue(void);
+
+static void dev_light_select_forever(void)
+{
+	sql_select_where_equal(LIGHT_DAY_TYPE, FORCE_CONTROL);
+
+}
+
+static void dev_light_select_sun_ctrl(void)
+{
+	sql_select_where_equal(LIGHT_DAY_TYPE, SUN_CONTROL);
+}
 
 static void dev_light_select_spec_date(void)
 {
@@ -70,6 +89,8 @@ static void dev_light_select_date(void)
 static void dev_light_select_modue(void)
 {
 	sql_select_where_equal(LIGHT_STATUS, "enable");
+	sql_add(" and ");
+	sql_select_where_equal(LIGHT_MODULE_TYPE, MODULE_NAME);
 }
 
 static void dev_light_select_module_st(void)
@@ -91,6 +112,7 @@ static void dev_light_update_module_st(void *value_ptr)
 	{
 		commnunication_error = 1;
 		printf("error %d: serial read line failed\n", re_val);
+		sql_select_where_equal(LIGHT_RUNNING_MODE, NONE);
 	}
 	else
 	{
@@ -133,6 +155,19 @@ static re_error_enum dev_light_ctrl_val_set(u8 set_val)
 	return re_val;
 }
 
+static int dev_light_sun_set(void *para)
+{
+	re_error_enum re_val;
+	re_val = dev_light_ctrl_val_set(*(u8*)para);
+	if (re_val != RE_SUCCESS)
+	{
+		commnunication_error = 1;
+		printf("error %d: serial write line failed\n", re_val);
+		return 1;
+	}
+	return 0;
+}
+
 static int enter_record_get_module_info(void * para, int n_column,
         char ** column_value, char ** column_name)
 {
@@ -156,6 +191,86 @@ static int enter_record_get_module_info(void * para, int n_column,
 
 	}
 	match_light_module_num++;
+	return 0;
+}
+
+static int enter_record_sun_ctrl(void * para, int n_column, char ** column_value,
+        char ** column_name)
+{
+	int hour, minute, second, other;
+	char cur_time1[12];
+	char cur_time2[12];
+	int i;
+	int j;
+	get_current_time(&other, &other, &other, &other, &hour, &minute, &second);
+	i = floor(suntime.sunsise_delay);
+	j = (float)(suntime.sunsise_delay - i) * 60;
+	printf("delay:%f, i:%d\r\n", suntime.sunsise_delay, i);
+	if (j <= minute)
+	{
+		sprintf((char*) cur_time1, "%02d:%02d:%02d.000", (hour - i), (minute -j), second);
+	}
+	else
+	{
+		sprintf((char*) cur_time1, "%02d:%02d:%02d.000", (hour - i - 1), (minute + 60 -j), second);
+	}
+	printf("cur_time1 : %s\r\n", cur_time1);
+
+	i = floor(suntime.sunset_delay);
+	j = (float)(suntime.sunset_delay - i) * 60;
+	if (j <= minute)
+	{
+		sprintf((char*) cur_time2, "%02d:%02d:%02d.000", (hour - i), (minute -j), second);
+	}
+	else
+	{
+		sprintf((char*) cur_time1, "%02d:%02d:%02d.000", (hour - i - 1), (minute + 60 -j), second);
+	}
+	printf("cur_time2 : %s\r\n", cur_time2);
+
+	if ((strcmp(cur_time1, suntime.timestr_sunrise) <= 0)
+			|| (strcmp(cur_time2, suntime.timestr_sunset) >= 0))
+	{
+		dev_light_ctrl_val_set(0x0f);
+		printf("set on\r\n");
+	}
+	else
+	{
+		dev_light_ctrl_val_set(0);
+		printf("set off\r\n");
+	}
+
+	match_record_flag++;
+
+	return 0;
+}
+
+static int dev_light_config_module(void * para, int n_column,
+        char ** column_value, char ** column_name)
+{
+	int i;
+	re_error_enum re_val;
+	for (i = 0; i < n_column; i++)
+	{
+		if (strcmp(column_value[i], "") == 0)
+		{
+			continue;
+		}
+		printf("key is %s, value is %s \r\n", column_name[i], column_value[i]);
+		if (strcmp(column_name[i], LIGHT_SUNSIZE_DELAY) == 0)
+		{
+
+			suntime.sunsise_delay = atof(column_value[i]);
+			printf("sunsise %f\r\n", suntime.sunsise_delay);
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], LIGHT_SUNSET_DELAY) == 0)
+		{
+			suntime.sunset_delay = atof(column_value[i]);
+
+			match_record_flag++;
+		}
+	}
 	return 0;
 }
 
@@ -240,6 +355,7 @@ static re_error_enum dev_light_module_init(void)
 static re_error_enum dev_light_module_switch(u8 light_mod_id)
 {
 	int value, result;
+
 	if (light_mod_id > match_light_module_num)
 	{
 		printf("error: light module: %d disable or do not exist\r\n",
@@ -258,20 +374,10 @@ static re_error_enum dev_light_module_switch(u8 light_mod_id)
 	modbus_dev_switch(light_module_array[light_mod_id].module_addr);
 	/*force the light*/
 	result = sql_select(LIGHT_DB, light_module_array[light_mod_id].module_table,
-		        dev_light_select_spec_date, enter_record_set_value, NULL);
-
-
-
-
-	/*suntime control the light*/
-	result = sql_select(LIGHT_DB, light_module_array[light_mod_id].module_table,
-		        dev_light_select_spec_date, enter_record_set_value, NULL);
-
-	/*control the light according to the config in responding table*/
-	result = sql_select(LIGHT_DB, light_module_array[light_mod_id].module_table,
-	        dev_light_select_spec_date, enter_record_set_value, NULL);
+			dev_light_select_forever, enter_record_set_value, NULL);
 	if (result != 0)
 	{
+		match_record_flag = 0;
 		printf("error: db: %s,light: %s disable or do not exist\r\n", LIGHT_DB,
 		        light_module_array[light_mod_id].module_table);
 		return RE_OP_FAIL;
@@ -283,13 +389,16 @@ static re_error_enum dev_light_module_switch(u8 light_mod_id)
 	}
 	else
 	{
-		result = sql_select(LIGHT_DB,
-		        light_module_array[light_mod_id].module_table,
-		        dev_light_select_date, enter_record_set_value, NULL);
+
+		/*config value in config table*/
+		result = sql_select(LIGHT_DB, LIGHT_CONFIG_TABLE,
+				dev_light_select_module_st, dev_light_config_module, NULL);
 		if (result != 0)
 		{
-			printf("error: db: %s,light: %s disable or do not exist\r\n",
-			LIGHT_DB, light_module_array[light_mod_id].module_table);
+			match_record_flag = 0;
+			printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+					LIGHT_DB,
+					LIGHT_CONFIG_TABLE);
 			return RE_OP_FAIL;
 		}
 		if (match_record_flag)
@@ -299,9 +408,74 @@ static re_error_enum dev_light_module_switch(u8 light_mod_id)
 		else
 		{
 			match_record_flag = 0;
-			printf("error: db: %s,table: %s configure error\r\n", LIGHT_DB,
-			        light_module_array[light_mod_id].module_table);
+			printf("error: db: %s,table: %s set error\r\n", LIGHT_DB,
+					LIGHT_CONFIG_TABLE);
 			return RE_OP_FAIL;
+		}
+
+		match_record_flag = 0;
+		/*suntime control the light*/
+		result = sql_select(LIGHT_DB,
+		        light_module_array[light_mod_id].module_table,
+		        dev_light_select_sun_ctrl, enter_record_sun_ctrl, NULL);
+		if (result != 0)
+		{
+			printf("error: db: %s,light: %s disable or do not exist\r\n",
+			        LIGHT_DB, light_module_array[light_mod_id].module_table);
+			return RE_OP_FAIL;
+		}
+		if (match_record_flag)
+		{
+			match_record_flag = 0;
+
+		}
+		else
+		{
+			match_record_flag = 0;
+			/*control the light according to the config in responding table*/
+			result = sql_select(LIGHT_DB,
+			        light_module_array[light_mod_id].module_table,
+			        dev_light_select_spec_date, enter_record_set_value, NULL);
+			if (result != 0)
+			{
+				printf("error: db: %s,light: %s disable or do not exist\r\n",
+				        LIGHT_DB,
+				        light_module_array[light_mod_id].module_table);
+				return RE_OP_FAIL;
+			}
+			if (match_record_flag)
+			{
+				match_record_flag = 0;
+
+			}
+			else
+			{
+				match_record_flag = 0;
+				result = sql_select(LIGHT_DB,
+				        light_module_array[light_mod_id].module_table,
+				        dev_light_select_date, enter_record_set_value, NULL);
+				if (result != 0)
+				{
+					printf(
+					        "error: db: %s,light: %s disable or do not exist\r\n",
+					        LIGHT_DB,
+					        light_module_array[light_mod_id].module_table);
+					return RE_OP_FAIL;
+				}
+				if (match_record_flag)
+				{
+					match_record_flag = 0;
+				}
+				else
+				{
+					match_record_flag = 0;
+					printf("error: db: %s,table: %s configure error\r\n",
+					        LIGHT_DB,
+					        light_module_array[light_mod_id].module_table);
+					return RE_OP_FAIL;
+				}
+			}
+
 		}
 	}
 
@@ -337,8 +511,7 @@ re_error_enum dev_light_module_monitor(void)
 	while(1)
 	{
 		printf("light module thread\r\n");
-		//getSunTime(121, 28, 31, 14);
-		getSunTime(91, 8, 29, 39);
+		getSunTime(121, 28, 31, 14);
 		re_val = dev_light_module_init();
 		if (re_val != RE_SUCCESS)
 		{
