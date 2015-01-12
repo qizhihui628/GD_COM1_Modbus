@@ -13,8 +13,9 @@ extern pthread_mutex_t thread_mutex;
 #define POWER_TABLE "Table_Name"
 
 #define POWER_DB "./DataBase/Power.db"
-
-#define POWER_ADDRESS "Address"
+#define POWER_STATUS_TABLE "Power_Status"
+#define POWER_ADDRESS "Power_Address"
+#define POWER_RUNNING_STATE "Running_State"
 #define POWER_DAY_TABLE "Power_Day_Record"
 
 #define POWER_NUMBER            3
@@ -26,6 +27,7 @@ static u8 match_record_flag = 0;
 static u8 match_power_module_num = 0;
 static u8 current_module_id = 0;
 static u8 date_change_flag = 0;
+static u8 commnunication_error = 0;
 static power_module_struct power_module_array[MAX_POWER_MODULE_NUMBER];
 
 static float cur_energy_value_array[POWER_NUMBER] = {0};
@@ -35,6 +37,24 @@ static void dev_power_select_modue(void);
 static void dev_power_select_modue(void)
 {
 	sql_select_where_equal(POWER_STATUS, "enable");
+}
+static void dev_power_select_module_st(void)
+{
+	char cur_addr[4];
+	sprintf((char*) cur_addr, "%d",
+			power_module_array[current_module_id].module_addr);
+	sql_select_where_equal(POWER_ADDRESS, cur_addr);
+}
+static void dev_power_update_module_st(void *value_ptr)
+{
+	if (commnunication_error == 1)
+	{
+		sql_select_where_equal(POWER_RUNNING_STATE, COMMUNICATION_ERROR);
+	}
+	else
+	{
+		sql_select_where_equal(POWER_RUNNING_STATE, NO_EXPECTION);
+	}
 }
 
 static void dev_power_status_update(void *value_ptr)
@@ -53,11 +73,13 @@ static void dev_power_status_update(void *value_ptr)
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read line failed\n", re_val);
+		commnunication_error = 1;
 		return;
 	}
 	if (val_num != POWER_VALUE_NUM)
 	{
 		printf("error %d: serial read line value invalid\n", re_val);
+		commnunication_error = 1;
 		return;
 	}
 	sql_add("(null,");
@@ -112,11 +134,13 @@ static void dev_power_day_status_update(void *value_ptr)
 	if (re_val != RE_SUCCESS)
 	{
 		printf("error %d: serial read line failed\n", re_val);
+		commnunication_error = 1;
 		return;
 	}
 	if (val_num != POWER_VALUE_NUM)
 	{
 		printf("error %d: serial read line value invalid\n", re_val);
+		commnunication_error = 1;
 		return;
 	}
 	sql_add("(null,");
@@ -200,42 +224,57 @@ static re_error_enum dev_power_module_switch(u8 power_mod_id)
 		        power_mod_id);
 		return RE_OP_FAIL;
 	}
-	if (power_module_array[power_mod_id].module_addr
-	        == 0|| strcmp(power_module_array[power_mod_id].module_table, "") == 0)
+	if (power_module_array[power_mod_id].module_addr == 0
+	        || strcmp(power_module_array[power_mod_id].module_table, "") == 0)
 	{
 		printf("error: power module: %d disable or do not exist\r\n",
 		        power_mod_id);
 		return RE_OP_FAIL;
 	}
+	commnunication_error = 0;
 	current_module_id = power_mod_id;
 	modbus_dev_switch(power_module_array[power_mod_id].module_addr);
 
 	/*Update value in status table*/
-	result = sql_insert(POWER_DB, power_module_array[power_mod_id].module_table, dev_power_status_update, NULL);
+	result = sql_insert(POWER_DB, power_module_array[power_mod_id].module_table,
+	        dev_power_status_update, NULL);
 	if (result != 0)
 	{
 		printf("error: db: %s,power: %s disable or do not exist\r\n", POWER_DB,
-				power_module_array[power_mod_id].module_table);
-		return RE_OP_FAIL;
+		        power_module_array[power_mod_id].module_table);
 	}
 
 	if (date_change_flag)
 	{
 		/*Update day value in status table*/
-		result = sql_insert(POWER_DB, POWER_DAY_TABLE, dev_power_day_status_update, NULL);
+		result = sql_insert(POWER_DB, POWER_DAY_TABLE,
+		        dev_power_day_status_update, NULL);
 		if (result != 0)
 		{
-			printf("error: db: %s,power: %s disable or do not exist\r\n", POWER_DB,
-					power_module_array[power_mod_id].module_table);
-			return RE_OP_FAIL;
+			printf("error: db: %s,power: %s disable or do not exist\r\n",
+			        POWER_DB, power_module_array[power_mod_id].module_table);
 		}
-		result = sql_delete_tbl(POWER_DB, power_module_array[power_mod_id].module_table);
-		if (result != 0)
+		else
 		{
-			printf("error: db: %s,power: %s disable or do not exist\r\n", POWER_DB,
-					power_module_array[power_mod_id].module_table);
-			return RE_OP_FAIL;
+			result = sql_delete_tbl(POWER_DB,
+			        power_module_array[power_mod_id].module_table);
+			if (result != 0)
+			{
+				printf("error: db: %s,power: %s disable or do not exist\r\n",
+				POWER_DB, power_module_array[power_mod_id].module_table);
+			}
 		}
+	}
+
+	/*Update value in status table*/
+	result = sql_update(POWER_DB, POWER_STATUS_TABLE,
+	        dev_power_select_module_st, dev_power_update_module_st, NULL);
+	if (result != 0)
+	{
+		printf("error: db: %s,freeze: %s disable or do not exist\r\n",
+		POWER_DB,
+		POWER_STATUS_TABLE);
+		return RE_OP_FAIL;
 	}
 	return RE_SUCCESS;
 
