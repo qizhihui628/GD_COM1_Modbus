@@ -67,55 +67,55 @@ static void dev_power_status_update(void *value_ptr)
 	static float pre_pwr[POWER_NUMBER] = {0};
 	u32 tmp;
 	int i;
-
+	sql_add("(null,");
 	re_val = modbus_read_hold_reg(POWER_REGISTER_ADDR, POWER_NUMBER, &val_num, val_buf);
 
-	if (re_val != RE_SUCCESS)
+	if (re_val != RE_SUCCESS || val_num != POWER_VALUE_NUM)
 	{
 		printf("error %d: serial read line failed\n", re_val);
 		commnunication_error = 1;
-		return;
+		sql_add("null,null,null,null,null,null,null,null,null,null,null,null");
 	}
-	if (val_num != POWER_VALUE_NUM)
+	else
 	{
-		printf("error %d: serial read line value invalid\n", re_val);
-		commnunication_error = 1;
-		return;
-	}
-	sql_add("(null,");
-	for (i = 0; i < POWER_VALUE_NUM/4; i++)
-	{
-		tmp = ((u32)val_buf[i*4] << 24) | ((u32)val_buf[i*4+1] << 16) | ((u32)val_buf[i*4+2] << 8)| ((u32)val_buf[i*4+3]);
-		if((i % 3) == 0)
+
+		for (i = 0; i < POWER_VALUE_NUM / 4; i++)
 		{
-			if (i != 0)
+			tmp = ((u32) val_buf[i * 4] << 24)
+			        | ((u32) val_buf[i * 4 + 1] << 16)
+			        | ((u32) val_buf[i * 4 + 2] << 8)
+			        | ((u32) val_buf[i * 4 + 3]);
+			if ((i % 3) == 0)
 			{
+				if (i != 0)
+				{
+					sql_add(",");
+				}
+				vol = (float) tmp / 10;
+				sprintf((char*) cur_val, "%.1f", vol);
+				sql_add(cur_val);
 				sql_add(",");
 			}
-			vol = (float)tmp / 10;
-			sprintf((char*) cur_val, "%.1f", vol);
-			sql_add(cur_val);
-			sql_add(",");
-		}
-		else if ((i % 3) == 1)
-		{
+			else if ((i % 3) == 1)
+			{
 
-			cur = (float)tmp / 10;
-			sprintf((char*) cur_val, "%.1f", cur);
-			sql_add(cur_val);
-			sql_add(",");
-		}
-		else
-		{
-			pwr = (float)tmp / 100;
-			sprintf((char*) cur_val, "%.2f", pwr);
-			sql_add(cur_val);
-			sql_add(",");
+				cur = (float) tmp / 10;
+				sprintf((char*) cur_val, "%.1f", cur);
+				sql_add(cur_val);
+				sql_add(",");
+			}
+			else
+			{
+				pwr = (float) tmp / 100;
+				sprintf((char*) cur_val, "%.2f", pwr);
+				sql_add(cur_val);
+				sql_add(",");
 
-			cur_energy_value_array[i/3] += pre_pwr[i/3] * 10;
-			sprintf((char*) cur_val, "%.2f", cur_energy_value_array[i/3]);
-			sql_add(cur_val);
-			pre_pwr[i/3] = pwr;
+				cur_energy_value_array[i / 3] += pre_pwr[i / 3] * 10;
+				sprintf((char*) cur_val, "%.2f", cur_energy_value_array[i / 3]);
+				sql_add(cur_val);
+				pre_pwr[i / 3] = pwr;
+			}
 		}
 	}
 	sql_add(",datetime('now','localtime'))");
@@ -235,7 +235,7 @@ static re_error_enum dev_power_module_switch(u8 power_mod_id)
 	current_module_id = power_mod_id;
 	modbus_dev_switch(power_module_array[power_mod_id].module_addr);
 
-	/*Update value in status table*/
+	/*insert record in record table*/
 	result = sql_insert(POWER_DB, power_module_array[power_mod_id].module_table,
 	        dev_power_status_update, NULL);
 	if (result != 0)

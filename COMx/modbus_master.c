@@ -14,6 +14,7 @@ static pthread_mutex_t mymutex=PTHREAD_MUTEX_INITIALIZER;
 #define MODBUS_FUNC_READ_LINE 0x01
 #define MODBUS_FUNC_READ_HOLD_REG 0x03
 #define MODBUS_FUNC_WRITE_SINGLE_LINE 0x05
+#define MODBUS_FUNC_WRITE_SINGLE_REG 0x06
 #define MODBUS_FUNC_WRITE_MUL_LINE 0x0f
 #define MODBUS_FUNC_WRITE_MUL_REGISTER 0x10
 
@@ -309,6 +310,43 @@ re_error_enum modbus_write_reg(u16 reg_id, u16 val)
 		pthread_mutex_unlock(&mymutex);
 		return ret_val;
 }
+
+re_error_enum modbus_write_single_reg(u16 reg_id, u16 val)
+{
+	re_error_enum ret_val = RE_SUCCESS;
+	modbus_pkg_struct pkg_ptr =
+	{ 0 };
+	u8 data_buf[MODBUS_MAX_BUF_SIZE] =
+	{ 0 };
+
+	pkg_ptr.func = MODBUS_FUNC_WRITE_SINGLE_REG;
+	data_buf[0] = H_VAL16(reg_id);
+	data_buf[1] = L_VAL16(reg_id);
+	data_buf[2] = H_VAL16(val);
+	data_buf[3] = L_VAL16(val);
+
+	pkg_ptr.data_ptr = data_buf;
+	pthread_mutex_lock(&mymutex);
+	ret_val = modbus_send(&pkg_ptr, 4);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: write line faild\r\n ", ret_val);
+		goto error;
+	}
+	usleep(280000);
+	ret_val = modbus_receive(&pkg_ptr);
+	pthread_mutex_unlock(&mymutex);
+	if (ret_val != RE_SUCCESS)
+	{
+		printf("error %d: write line respond faild\r\n ", ret_val);
+		goto error;
+	}
+
+	error:
+		pthread_mutex_unlock(&mymutex);
+		return ret_val;
+}
+
 re_error_enum modbus_write_mul_reg(u16 start_reg, u16 reg_num, s16 val)
 {
 	re_error_enum ret_val = RE_SUCCESS;

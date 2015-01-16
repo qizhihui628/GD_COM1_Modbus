@@ -865,6 +865,7 @@ void dev_freeze_remind_ctrl(void)
 		printf("reset count\r\n");
 	}
 }
+
 re_error_enum dev_freeze_module_monitor(void)
 {
 	re_error_enum re_val = RE_SUCCESS;

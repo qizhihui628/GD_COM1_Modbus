@@ -4,8 +4,8 @@
 #include "modbus_master.h"
 #include "dev_light_mod.h"
 #include "dev_XR75CX_module.h"
-#include "dev_daikin_module.h"
 #include "dev_power_module.h"
+#include "dev_air_module.h"
 
 #define NONE_STANDARD 0
 #define ST_MODEBUS 1
@@ -50,6 +50,7 @@ int main(void)
 	pthread_create(&pid1, NULL, dev_power_module_monitor, NULL);
 	pthread_create(&pid2, NULL, dev_light_module_monitor, NULL);
 	pthread_create(&pid2, NULL, dev_freeze_module_monitor, NULL);
+	pthread_create(&pid2, NULL, dev_air_module_monitor, NULL);
 	/* loop for input */
 	while (loop)
 	{

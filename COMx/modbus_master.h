@@ -13,5 +13,6 @@ re_error_enum modbus_read_binary(u16 start_reg, u16 reg_num, u8* val_num_ptr,
         u8 *val_ptr);
 re_error_enum modbus_read_hold_reg(u16 start_reg, u16 reg_num, u8* val_num_ptr,
         u8 *val_ptr);
+re_error_enum modbus_write_single_reg(u16 reg_id, u16 val);
 void modbus_dev_switch(u8 addr);
 #endif

@@ -50,7 +50,6 @@ static void dev_light_select_modue(void);
 static void dev_light_select_forever(void)
 {
 	sql_select_where_equal(LIGHT_DAY_TYPE, FORCE_CONTROL);
-
 }
 
 static void dev_light_select_sun_ctrl(void)
@@ -155,19 +154,6 @@ static re_error_enum dev_light_ctrl_val_set(u8 set_val)
 	return re_val;
 }
 
-static int dev_light_sun_set(void *para)
-{
-	re_error_enum re_val;
-	re_val = dev_light_ctrl_val_set(*(u8*)para);
-	if (re_val != RE_SUCCESS)
-	{
-		commnunication_error = 1;
-		printf("error %d: serial write line failed\n", re_val);
-		return 1;
-	}
-	return 0;
-}
-
 static int enter_record_get_module_info(void * para, int n_column,
         char ** column_value, char ** column_name)
 {
@@ -224,7 +210,7 @@ static int enter_record_sun_ctrl(void * para, int n_column, char ** column_value
 	}
 	else
 	{
-		sprintf((char*) cur_time1, "%02d:%02d:%02d.000", (hour - i - 1), (minute + 60 -j), second);
+		sprintf((char*) cur_time2, "%02d:%02d:%02d.000", (hour - i - 1), (minute + 60 -j), second);
 	}
 	printf("cur_time2 : %s\r\n", cur_time2);
 
@@ -501,7 +487,6 @@ static re_error_enum dev_light_module_switch(u8 light_mod_id)
 		return RE_OP_FAIL;
 	}
 	return RE_SUCCESS;
-
 }
 
 re_error_enum dev_light_module_monitor(void)
@@ -532,4 +517,3 @@ re_error_enum dev_light_module_monitor(void)
 	}
 	return RE_SUCCESS;
 }
-

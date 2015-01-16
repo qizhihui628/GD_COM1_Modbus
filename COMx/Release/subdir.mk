@@ -6,7 +6,7 @@
 C_SRCS += \
 ../crc_check.c \
 ../dev_XR75CX_module.c \
-../dev_daikin_module.c \
+../dev_air_module.c \
 ../dev_ligth_mod.c \
 ../dev_power_module.c \
 ../main.c \
@@ -19,7 +19,7 @@ C_SRCS += \
 OBJS += \
 ./crc_check.o \
 ./dev_XR75CX_module.o \
-./dev_daikin_module.o \
+./dev_air_module.o \
 ./dev_ligth_mod.o \
 ./dev_power_module.o \
 ./main.o \
@@ -32,7 +32,7 @@ OBJS += \
 C_DEPS += \
 ./crc_check.d \
 ./dev_XR75CX_module.d \
-./dev_daikin_module.d \
+./dev_air_module.d \
 ./dev_ligth_mod.d \
 ./dev_power_module.d \
 ./main.d \

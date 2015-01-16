@@ -1,16 +1,15 @@
 #include "system.h"
+#include <stdio.h>
 #include <regex.h>
 #include <sys/time.h>
 #include <time.h>
 #include <signal.h>
 #include <string.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
 #define MAX_BUF_SIZE 20
-
-static char string_buf[MAX_BUF_SIZE] = {0};
+#define SUBSLEN 10
 suntime_struct suntime = {0, 0, "", ""};
 
 void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
@@ -30,32 +29,41 @@ void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
 	*weekday_ptr = nowtime->tm_wday;
 }
 
-int match_time_key(char *string, char* pattern, char** sub_pptr)
+int match_time_key(char *string, char* pattern, char* sub_ptr)
 {
 	regex_t reg;
-	regmatch_t pm[1];       //pattern matches 0-9
-	const size_t nmatch = 1;  //The size of array pm[]
-	char temp_str[MAX_BUF_SIZE] = {0};
+	regmatch_t pm[SUBSLEN];       //pattern matches 0-9
+	size_t len;  //The size of array pm[]
+	int i;
 
-	if (regcomp(&reg, pattern, REG_EXTENDED | REG_ICASE | REG_NOSUB) != 0)
+	if (regcomp(&reg, pattern, REG_EXTENDED | REG_ICASE) != 0)
 	{
 		printf("error:creat regular expression: %s failed\r\n", pattern);
 		return 1;
 	}
 
-	if (regexec(&reg, string, nmatch, pm, 0) != REG_NOERROR)
+	if (regexec(&reg, string, (size_t)SUBSLEN, pm, 0) != REG_NOERROR)
 	{
 		printf("error:%s match time format %s: failed\r\n", string, pattern);
+		regfree(&reg);
 		return 1;
 	}
 
 	printf("match time success %s pattern:%s\r\n", string, pattern);
-	if (sub_pptr != NULL)
+	if (sub_ptr != NULL)
 	{
-		strcpy(temp_str, string);
-		strncpy(string_buf, &temp_str[pm[0].rm_so], (pm[0].rm_eo-pm[0].rm_so));
-		*sub_pptr = string_buf;
+		for(i = 1; i <= reg.re_nsub; i++)
+		{
+			len = pm[i].rm_eo - pm[i].rm_so;
+
+			printf("renum :%d, st %d, num %d \r\n", reg.re_nsub, pm[i].rm_so, len);
+			memcpy (sub_ptr, (string + pm[i].rm_so), len);
+			*(sub_ptr + len) = '\0';
+			printf("sub str: %s\r\n", sub_ptr);
+		}
 	}
+
+	regfree(&reg);
 	return 0;
 }
 #if 1

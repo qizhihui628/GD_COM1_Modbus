@@ -16,30 +16,23 @@ void sql_add(char *expression)
 
 void sql_select_where_equal(char *key_name, char *value)
 {
-	printf("base_exp: %s\r\n", base_exp);
 	sql_add(key_name);
 	sql_add("=\'");
 	sql_add(value);
 	sql_add("\'");
-	printf("base_expf: %s\r\n", base_exp);
-
 }
 
-void sql_select_where_less(char *key_name, char *value)
+void sql_select_where_like(char *key_name, char *value)
 {
-	printf("base_exp: %s\r\n", base_exp);
 	sql_add(key_name);
-	sql_add("<=\'");
+	sql_add(" glob \'");
 	sql_add(value);
-	sql_add("\'");
-	printf("base_expf: %s\r\n", base_exp);
-
+	sql_add("*\'");
 }
 
 void sql_clear_where(void)
 {
 	strcpy(base_exp, "");
-	printf("base_expf: %s\r\n", base_exp);
 }
 
 int sql_select(char* db_name, char* table_name, select_callback select_record,
@@ -62,6 +55,7 @@ int sql_select(char* db_name, char* table_name, select_callback select_record,
 	strcat(base_exp, table_name);
 	strcat(base_exp, " where ");
 	select_record();
+	printf("base_expf: %s\r\n", base_exp);
 	result = sqlite3_exec(db, base_exp, sql_callback, para, errmsg);
 	if (result != SQLITE_OK)
 	{
@@ -98,6 +92,7 @@ int sql_update(char* db_name, char* table_name, select_callback select_record,
 	update_record((int *) para);
 	strcat(base_exp, " where ");
 	select_record();
+	printf("base_expf: %s\r\n", base_exp);
 	result = sqlite3_exec(db, base_exp, NULL, NULL, errmsg);
 	if (result != SQLITE_OK)
 	{
@@ -132,7 +127,7 @@ int sql_insert(char* db_name, char* table_name, update_callback update_record, v
 	strcat(base_exp, table_name);
 	strcat(base_exp, " values ");
 	update_record((int *) para);
-	printf("insert base_exp: %s\r\n", base_exp);
+	printf("base_expf: %s\r\n", base_exp);
 	result = sqlite3_exec(db, base_exp, NULL, NULL, errmsg);
 	if (result != SQLITE_OK)
 	{
@@ -164,6 +159,7 @@ int sql_delete_tbl(char* db_name, char* table_name)
 	sql_clear_where();
 	strcat(base_exp, "delete from ");
 	strcat(base_exp, table_name);
+	printf("base_expf: %s\r\n", base_exp);
 	result = sqlite3_exec(db, base_exp, NULL, NULL, errmsg);
 	if (result != SQLITE_OK)
 	{
