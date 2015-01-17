@@ -7,11 +7,18 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include "sql_op.h"
 
 #define MAX_BUF_SIZE 20
 #define SUBSLEN 10
-suntime_struct suntime = {0, 0, "", ""};
-
+#define SYSTEM_CONFIG_DB "./DataBase/JNSysHost.db3"
+#define SYSTEM_JW_TABLE "tblStore"
+#define SYSTEM_STORE "StoreName"
+#define SYSTEM_STORE_NAME "全家"
+#define LONGITUDE "Longitude"
+#define LATITUDE "Latitude"
+suntime_struct suntime = {0, 0, 0, 0, "", ""};
+static int match_record_flag = 0;
 void get_current_time(int *year_ptr, int *month_ptr, int *day_ptr,
         int* weekday_ptr, int *hour_ptr, int *minitue_ptr, int *second_ptr)
 {
@@ -65,6 +72,36 @@ int match_time_key(char *string, char* pattern, char* sub_ptr)
 
 	regfree(&reg);
 	return 0;
+}
+
+static int enter_record_get_jw_info(void * para, int n_column,
+        char ** column_value, char ** column_name)
+{
+	int i;
+
+	for (i = 0; i < n_column; i++)
+	{
+		if (strcmp(column_name[i], LONGITUDE) == 0)
+		{
+			printf("coumn_value is %s\r\n", column_value[i]);
+			suntime.longitude = atof(column_value[i]);
+			match_record_flag++;
+		}
+		if (strcmp(column_name[i], LATITUDE) == 0)
+		{
+			printf("coumn_value is %s\r\n", column_value[i]);
+			suntime.latitude = atof(column_value[i]);
+			match_record_flag++;
+		}
+
+	}
+	return 0;
+
+}
+
+static void select_store(void)
+{
+	sql_select_where_equal(SYSTEM_STORE, SYSTEM_STORE_NAME);
 }
 #if 1
 
@@ -207,7 +244,7 @@ double sunRiseTime(double date, double lo, double la, double tz)
 	return date - degree(H - H0) / M_PI / 2 + tz; // 日出时间，函数返回值
 }
 
-void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees, double wd_seconds)
+void getSunTime(void)
 {
 	char timestr[20];
 	int year;
@@ -220,7 +257,38 @@ void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees, double 
 	int day_int;
 	int tz;
 	int i;
+	int result;
+	double jd_degrees;
+	double jd_seconds;
+	double wd_degrees;
+	double wd_seconds;
 
+	result = sql_select(SYSTEM_CONFIG_DB, SYSTEM_JW_TABLE, select_store,
+	        enter_record_get_jw_info, NULL);
+	if (result != 0)
+	{
+		printf("error: db: %s,table: %s disable or do not exist\r\n",
+		SYSTEM_CONFIG_DB, SYSTEM_JW_TABLE);
+		return;
+	}
+
+	if (match_record_flag == 2)
+	{
+		match_record_flag = 0;
+	}
+	else
+	{
+		match_record_flag = 0;
+		printf("error: db: %s,table: %s disable or do not exist\r\n",
+		SYSTEM_CONFIG_DB, SYSTEM_JW_TABLE);
+		return;
+	}
+	jd_degrees = floor(suntime.longitude);
+	jd_seconds = (suntime.longitude - jd_degrees) * 60;
+	wd_degrees = floor(suntime.latitude);
+	wd_seconds = (suntime.latitude - wd_degrees) * 60;
+	printf("jd_degrees=%f, jd_seconds=%f\r\n", jd_degrees, jd_seconds);
+	printf("wd_degrees=%f, wd_seconds=%f\r\n", wd_degrees, wd_seconds);
 	//上海东经121度29分，北纬31度14分
 	//jd_degrees = 121;
 	//jd_seconds = 28;
@@ -242,8 +310,6 @@ void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees, double 
 	//step 1
 	jd = -(jd_degrees + jd_seconds / 60) / 180 * M_PI;
 	wd = (wd_degrees + wd_seconds / 60) / 180 * M_PI;
-	printf("jd=%f\r\n", jd);
-	printf("wd=%f\r\n", wd);
 
 	//step 2
 	get_current_time(&year, &month, &day_int, &week, &hour, &min, &sec);
@@ -258,11 +324,11 @@ void getSunTime(double jd_degrees, double jd_seconds, double wd_degrees, double 
 
 	doubleToStr(richu, timestr);
 	printf("日出时间 %s\r\n", timestr);
-	strcpy(suntime.timestr_sunrise , timestr);
+	strcpy(suntime.timestr_sunrise, timestr);
 	doubleToStr(midDayTime + midDayTime - richu, timestr);
 	printf("日落时间 %s\r\n", timestr);
 	printf("richu:%f,midDayTime:%f\r\n", richu, midDayTime);
-	strcpy(suntime.timestr_sunset , timestr);
+	strcpy(suntime.timestr_sunset, timestr);
 	doubleToStr(midDayTime, timestr);
 	printf("中天时间 %s\r\n", timestr);
 

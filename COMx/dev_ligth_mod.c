@@ -335,6 +335,7 @@ static re_error_enum dev_light_module_init(void)
 		MODBUS_CONFIG_DB, LIGHT_REGISTER_TABLE);
 		return RE_OP_FAIL;
 	}
+
 	return RE_SUCCESS;
 }
 
@@ -496,7 +497,8 @@ re_error_enum dev_light_module_monitor(void)
 	while(1)
 	{
 		printf("light module thread\r\n");
-		getSunTime(121, 28, 31, 14);
+
+		getSunTime();
 		re_val = dev_light_module_init();
 		if (re_val != RE_SUCCESS)
 		{
